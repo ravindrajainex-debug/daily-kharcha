@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Daily Kharcha | Annual Subscription QR Demo</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#202923;background:#f4f6f3}*{box-sizing:border-box}body{margin:0;padding:24px}.wrap{max-width:760px;margin:24px auto}.card{background:#fff;border:1px solid #e1e8e2;border-radius:16px;padding:24px;box-shadow:0 5px 24px #173b3210}.brand{color:#173b32;font-weight:800;font-size:22px}.muted{color:#69756d}.price{font-size:36px;font-weight:800;color:#173b32;margin:8px 0}.field{display:block;margin:14px 0}.field span{display:block;font-size:13px;font-weight:650;margin-bottom:6px}.field input{width:100%;padding:12px;border:1px solid #ccd8cf;border-radius:9px;font:inherit}.btn{border:0;border-radius:9px;background:#245747;color:#fff;padding:11px 16px;font:inherit;font-weight:700;cursor:pointer}.btn.secondary{background:#edf2ee;color:#173b32}.qr{width:240px;height:240px;max-width:100%;object-fit:contain;border:1px solid #e1e8e2;border-radius:12px;padding:8px;background:white}.center{text-align:center}.notice{background:#fff7e6;border:1px solid #f0dca9;border-radius:10px;padding:12px;font-size:13px;line-height:1.5}.hidden{display:none!important}.status{min-height:22px;font-size:13px;color:#245747}.small{font-size:12px}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}@media(max-width:520px){body{padding:12px}.card{padding:18px}}
+</style>
+</head>
+<body>
+<main class="wrap">
+<section class="card">
+ <div class="brand">₹ Daily Kharcha</div>
+ <p class="muted">Company annual subscription</p>
+ <div class="price">₹499 <span class="small muted">/ year / company</span></div>
+ <p class="muted">One flat annual fee. No per-employee charge and no monthly fee.</p>
+ <div class="notice"><strong>Demo payment screen:</strong> This page is a UI preview only. It does not collect money, confirm a UPI payment, activate a subscription, or connect to Cashfree. Live payment activation must be verified securely by the server.</div>
+</section>
+<section class="card" style="margin-top:16px">
+ <h2 style="margin-top:0">Pay by UPI QR</h2>
+ <p class="muted">The QR code can be created after the Super Admin configures the business UPI ID. The UPI ID is not configured in this demo.</p>
+ <div class="center">
+  <div id="qrPlaceholder" style="width:240px;height:240px;max-width:100%;margin:12px auto;border:1px dashed #aab8ad;border-radius:12px;display:grid;place-items:center;padding:20px;color:#69756d">UPI QR will appear here after configuration</div>
+  <img id="qrImage" class="qr hidden" alt="UPI payment QR code">
+  <p id="upiText" class="muted small"></p>
+  <button id="payButton" class="btn hidden" type="button">Open UPI app</button>
+ </div>
+ <label class="field"><span>Company name</span><input id="companyName" placeholder="Enter your company name" autocomplete="organization"></label>
+ <label class="field"><span>Payment reference / UTR (after payment)</span><input id="utr" placeholder="Enter UTR only after making payment"></label>
+ <button id="submitReference" class="btn secondary" type="button">Submit payment reference (demo)</button>
+ <p id="status" class="status" role="status"></p>
+</section>
+<section class="card" style="margin-top:16px">
+ <h3 style="margin-top:0">Super Admin setup preview</h3>
+ <p class="muted small">Enter the official business UPI ID to preview a ₹499 QR. This setting is saved only in this browser for demonstration. It is not a secure admin setting.</p>
+ <label class="field"><span>Business UPI ID</span><input id="upiId" placeholder="example@upi" autocomplete="off"></label>
+ <div class="row"><button id="saveUpi" class="btn" type="button">Preview QR</button><button id="clearUpi" class="btn secondary" type="button">Clear</button></div>
+ <p class="small muted">For production, the UPI ID and payment settings must be stored on the server and editable only by the authenticated Super Admin.</p>
+</section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const clean=v=>String(v||'').trim();
+function makeQr(){
+ const upi=clean($('upiId').value);
+ if(!upi||! /^[^\s@]+@[^\s@]+$/.test(upi)){ $('status').textContent='Please enter a valid business UPI ID to preview the QR.'; return; }
+ const payload='upi://pay?pa='+encodeURIComponent(upi)+'&pn='+encodeURIComponent('Daily Kharcha')+'&am=499.00&cu=INR&tn='+encodeURIComponent('Daily Kharcha annual company subscription');
+ $('qrImage').src='https://api.qrserver.com/v1/create-qr-code/?size=300x300&data='+encodeURIComponent(payload);
+ $('qrImage').classList.remove('hidden');$('qrPlaceholder').classList.add('hidden');$('upiText').textContent='Pay ₹499 to '+upi;
+ $('payButton').classList.remove('hidden');$('payButton').dataset.uri=payload;
+ $('status').textContent='QR preview generated. This does not verify payment.';
+ try{localStorage.setItem('dk_demo_upi',upi)}catch(e){}
+}
+$('saveUpi').onclick=makeQr;
+$('clearUpi').onclick=()=>{ $('upiId').value='';$('qrImage').classList.add('hidden');$('qrPlaceholder').classList.remove('hidden');$('upiText').textContent='';$('payButton').classList.add('hidden');$('status').textContent='UPI preview cleared.';try{localStorage.removeItem('dk_demo_upi')}catch(e){} };
+$('payButton').onclick=()=>{const uri=$('payButton').dataset.uri;if(uri)location.href=uri};
+$('submitReference').onclick=()=>{const company=clean($('companyName').value),utr=clean($('utr').value);$('status').textContent=(!company||!utr)?'Enter company name and UTR to preview the manual review step.':'Demo only: reference captured on this screen. No payment is verified and no subscription is activated.'};
+try{$('upiId').value=localStorage.getItem('dk_demo_upi')||''}catch(e){}
+</script>
+</body>
+</html>
