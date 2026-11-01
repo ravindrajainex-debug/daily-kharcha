@@ -1,5 +1,9 @@
 -- Daily Kharcha: secure multi-company foundation (reviewed)
--- Applied only after confirming the target project had no public tables or migrations.
+-- Target project was inspected first: no public tables and no prior migrations.
+
+create schema private;
+revoke all on schema private from public, anon;
+grant usage on schema private to authenticated;
 
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -93,8 +97,8 @@ create table public.audit_logs (
 );
 create index audit_logs_company_created_idx on public.audit_logs(company_id, created_at desc);
 
--- Private authorization helpers. Fixed search_path and narrowly granted execution.
-create or replace function public.is_platform_admin()
+-- Authorization helpers live outside exposed public schema.
+create function private.is_platform_admin()
 returns boolean
 language sql stable security definer
 set search_path = ''
@@ -102,11 +106,11 @@ as $$
   select coalesce((
     select p.is_platform_admin
     from public.profiles p
-    where p.id = auth.uid()
+    where p.id = (select auth.uid())
   ), false);
 $$;
 
-create or replace function public.has_active_company_role(
+create function private.has_active_company_role(
   target_company_id uuid,
   allowed_roles text[] default null
 )
@@ -119,17 +123,17 @@ as $$
     from public.company_memberships m
     join public.companies c on c.id = m.company_id
     where m.company_id = target_company_id
-      and m.user_id = auth.uid()
+      and m.user_id = (select auth.uid())
       and m.status = 'active'
       and c.status = 'active'
       and (allowed_roles is null or m.role = any(allowed_roles))
   );
 $$;
 
-revoke all on function public.is_platform_admin() from public, anon;
-revoke all on function public.has_active_company_role(uuid, text[]) from public, anon;
-grant execute on function public.is_platform_admin() to authenticated;
-grant execute on function public.has_active_company_role(uuid, text[]) to authenticated;
+revoke all on function private.is_platform_admin() from public, anon;
+revoke all on function private.has_active_company_role(uuid, text[]) from public, anon;
+grant execute on function private.is_platform_admin() to authenticated;
+grant execute on function private.has_active_company_role(uuid, text[]) to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.companies enable row level security;
@@ -138,83 +142,90 @@ alter table public.expenses enable row level security;
 alter table public.attendance_records enable row level security;
 alter table public.audit_logs enable row level security;
 
+-- Remove default client grants, then grant back only explicitly approved operations.
+revoke all on table public.profiles, public.companies, public.company_memberships,
+  public.expenses, public.attendance_records, public.audit_logs from anon, authenticated;
+
 create policy profiles_read_self_or_platform on public.profiles
   for select to authenticated
-  using (id = auth.uid() or public.is_platform_admin());
+  using (id = (select auth.uid()) or (select private.is_platform_admin()));
 
 create policy profiles_insert_self on public.profiles
   for insert to authenticated
-  with check (id = auth.uid() and is_platform_admin = false);
+  with check (id = (select auth.uid()) and is_platform_admin = false);
 
 create policy profiles_update_self on public.profiles
   for update to authenticated
-  using (id = auth.uid() or public.is_platform_admin())
-  with check (id = auth.uid() or public.is_platform_admin());
+  using (id = (select auth.uid()) or (select private.is_platform_admin()))
+  with check (id = (select auth.uid()) or (select private.is_platform_admin()));
 
 create policy companies_read_member_or_platform on public.companies
   for select to authenticated
-  using (public.is_platform_admin() or public.has_active_company_role(id));
+  using ((select private.is_platform_admin()) or (select private.has_active_company_role(id)));
 
 create policy companies_platform_insert on public.companies
   for insert to authenticated
-  with check (public.is_platform_admin());
+  with check ((select private.is_platform_admin()));
 
 create policy companies_platform_update on public.companies
   for update to authenticated
-  using (public.is_platform_admin())
-  with check (public.is_platform_admin());
+  using ((select private.is_platform_admin()))
+  with check ((select private.is_platform_admin()));
 
 create policy memberships_read_self_admin_or_platform on public.company_memberships
   for select to authenticated
   using (
-    user_id = auth.uid()
-    or public.is_platform_admin()
-    or public.has_active_company_role(company_id, array['company_owner','company_admin','hr_admin'])
+    user_id = (select auth.uid())
+    or (select private.is_platform_admin())
+    or (select private.has_active_company_role(company_id, array['company_owner','company_admin','hr_admin']))
   );
 
 create policy expenses_read_scoped on public.expenses
   for select to authenticated
   using (
-    public.is_platform_admin()
+    (select private.is_platform_admin())
     or (
-      public.has_active_company_role(company_id)
+      (select private.has_active_company_role(company_id))
       and (
-        user_id = auth.uid()
-        or public.has_active_company_role(company_id, array['company_owner','company_admin','hr_admin','manager'])
+        user_id = (select auth.uid())
+        or (select private.has_active_company_role(company_id, array['company_owner','company_admin','hr_admin','manager']))
       )
     )
   );
 
 create policy expenses_insert_self on public.expenses
   for insert to authenticated
-  with check (user_id = auth.uid() and public.has_active_company_role(company_id));
+  with check (user_id = (select auth.uid()) and (select private.has_active_company_role(company_id)));
 
 create policy expenses_update_own_draft on public.expenses
   for update to authenticated
   using (
-    user_id = auth.uid()
+    user_id = (select auth.uid())
     and status in ('draft','rejected')
-    and public.has_active_company_role(company_id)
+    and (select private.has_active_company_role(company_id))
   )
-  with check (user_id = auth.uid() and public.has_active_company_role(company_id));
+  with check (
+    user_id = (select auth.uid())
+    and (select private.has_active_company_role(company_id))
+  );
 
 create policy expenses_delete_own_draft on public.expenses
   for delete to authenticated
   using (
-    user_id = auth.uid()
+    user_id = (select auth.uid())
     and status = 'draft'
-    and public.has_active_company_role(company_id)
+    and (select private.has_active_company_role(company_id))
   );
 
 create policy attendance_read_scoped on public.attendance_records
   for select to authenticated
   using (
-    public.is_platform_admin()
+    (select private.is_platform_admin())
     or (
-      public.has_active_company_role(company_id)
+      (select private.has_active_company_role(company_id))
       and (
-        user_id = auth.uid()
-        or public.has_active_company_role(company_id, array['company_owner','company_admin','hr_admin','manager'])
+        user_id = (select auth.uid())
+        or (select private.has_active_company_role(company_id, array['company_owner','company_admin','hr_admin','manager']))
       )
     )
   );
@@ -222,11 +233,10 @@ create policy attendance_read_scoped on public.attendance_records
 create policy audit_logs_read_scoped on public.audit_logs
   for select to authenticated
   using (
-    public.is_platform_admin()
-    or public.has_active_company_role(company_id, array['company_owner','company_admin','hr_admin'])
+    (select private.is_platform_admin())
+    or (select private.has_active_company_role(company_id, array['company_owner','company_admin','hr_admin']))
   );
 
--- Grant only the columns needed by the first client release.
 grant select on public.profiles, public.companies, public.company_memberships,
   public.expenses, public.attendance_records, public.audit_logs to authenticated;
 
@@ -243,5 +253,4 @@ grant update (expense_date, category, travel_mode, from_location, to_location,
   on public.expenses to authenticated;
 grant delete on public.expenses to authenticated;
 
--- No direct browser writes to company records, memberships, attendance or audit logs.
--- Those operations must go through authenticated server functions after role checks.
+-- Company creation, membership changes, attendance punches and audit writes are server-only.
