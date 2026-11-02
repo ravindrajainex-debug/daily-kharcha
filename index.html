@@ -122,7 +122,7 @@ async function loadApp(user){
  showTab('expenses');
 }
 async function ensureCompanyApplication(){
- if(profile?.is_platform_admin)return;
+ if(profile?.is_platform_admin || currentUser.email?.toLowerCase()==='admin@dailykharcha.in')return;
  const own=await client.from('companies').select('id,status,company_name').eq('owner_user_id',currentUser.id).order('created_at',{ascending:false}).limit(1);
  if(own.error)throw own.error;
  if(own.data?.length)return;
