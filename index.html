@@ -40,7 +40,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
  <div id="accessNotice" class="statusbox hidden"></div>
  <div class="stats"><div class="stat"><small>Total expenses</small><strong id="totalAmount">₹0.00</strong></div><div class="stat"><small>Number of entries</small><strong id="entryCount">0</strong></div><div class="stat"><small>Selected month</small><strong id="monthAmount">₹0.00</strong></div></div>
  <div class="tabs no-print" id="appTabs"><button class="tab hidden" id="companyTabButton" data-tab="company">Company Dashboard</button><button class="tab active" data-tab="expenses">Expenses</button><button class="tab" data-tab="attendance">Attendance</button><button class="tab" data-tab="profile">My profile</button><button class="tab" data-tab="salary">Salary</button><button class="tab" data-tab="accessories">Accessories</button><button class="tab" data-tab="samples">Samples</button><button class="tab" data-tab="orders">Orders Received</button><button class="tab" data-tab="about">About Us</button><button class="tab hidden" id="adminTab" data-tab="admin">Owner Admin</button></div>
- <section id="companyTab" class="panel hidden"><h3>Company Dashboard</h3><p class="muted">Your approved company and access details.</p><div class="stats"><div class="stat"><small>Company</small><strong id="companyDashName">—</strong></div><div class="stat"><small>Company status</small><strong id="companyDashStatus">—</strong></div><div class="stat"><small>Your role</small><strong id="companyDashRole">—</strong></div></div><div class="row between" style="gap:12px"><h3>Employee Management</h3><button class="btn" type="button" id="refreshCompanyMembers">Refresh Employees</button></div><p class="muted" id="companyMembersMessage">Loading company members…</p><div class="table-wrap"><table><thead><tr><th>Employee</th><th>Designation</th><th>Role</th><th>Access</th></tr></thead><tbody id="companyMembersRows"></tbody></table></div><p class="note">Only employees belonging to this company are listed. Invitations and role changes will be enabled after secure acceptance and permission checks are implemented.</p></section>
+ <section id="companyTab" class="panel hidden"><h3>Company Dashboard</h3><p class="muted">Your approved company and access details.</p><div class="stats"><div class="stat"><small>Company</small><strong id="companyDashName">—</strong></div><div class="stat"><small>Company status</small><strong id="companyDashStatus">—</strong></div><div class="stat"><small>Your role</small><strong id="companyDashRole">—</strong></div></div><div class="row between" style="gap:12px"><h3>Employee Management</h3><button class="btn" type="button" id="refreshCompanyMembers">Refresh Employees</button></div><p class="muted" id="companyMembersMessage">Loading company members…</p><div class="table-wrap"><table><thead><tr><th>Employee</th><th>Designation</th><th>Role</th><th>Access</th></tr></thead><tbody id="companyMembersRows"></tbody></table></div><p class="note">Only employees belonging to this company are listed.</p><div id="employeeInvitePanel"><h3>Request Employee Invitation</h3><form id="employeeInviteForm" class="grid"><div class="field"><label>Employee email *</label><input id="inviteEmployeeEmail" type="email" required maxlength="254" placeholder="employee@example.com"></div><div class="field"><label>Role *</label><select id="inviteEmployeeRole"><option value="employee">Employee</option><option value="manager">Manager</option><option value="hr_admin">HR Admin</option><option value="company_admin">Company Admin</option></select></div><div class="field"><button class="btn" type="submit">Save Invitation Request</button></div></form><p class="muted" id="employeeInviteMessage">This records an invitation request only; no email is sent and no account access is granted.</p></div><h3>Invitation Requests</h3><p class="muted" id="invitationListMessage"></p><div class="table-wrap"><table><thead><tr><th>Email</th><th>Role</th><th>Status</th></tr></thead><tbody id="invitationRows"></tbody></table></div></section>
  <section id="expensesTab">
   <div class="panel form-panel no-print"><h3 class="section-title" id="expenseFormTitle">Add an expense</h3><p class="muted" style="margin-top:0">Enter journey or daily expense details.</p>
    <form id="expenseForm" class="grid">
@@ -148,6 +148,8 @@ async function loadApp(user){
  $('companyTabButton').classList.toggle('hidden',!activeCompany||!['company_owner','company_admin','hr_admin'].includes(membership?.role));
  $('companyDashName').textContent=activeCompany?.company_name||'—';$('companyDashStatus').textContent=activeCompany?.status||'—';$('companyDashRole').textContent=membership?.role||'—';
  await loadCompanyMembers();
+ $('employeeInvitePanel').classList.toggle('hidden',!membership||!['company_owner','company_admin'].includes(membership.role));
+ await loadInvitationRequests();
  $('authView').classList.add('hidden');$('appView').classList.remove('hidden');$('logoutBtn').classList.remove('hidden');
  $('adminTab').classList.toggle('hidden',!isAdmin);
  $('welcomeTitle').textContent='Hello, '+(profile.full_name||user.email);
@@ -182,6 +184,23 @@ async function loadCompanyMembers(){
  rows.innerHTML=(data||[]).map(m=>{const person=names.get(m.user_id);return '<tr><td>'+esc(person?.full_name||'Member')+'</td><td>'+esc(person?.designation||'—')+'</td><td>'+esc(m.role)+'</td><td>'+esc(m.status)+'</td></tr>';}).join('');
  notice.textContent=ids.length+' company member(s)';
 }
+async function loadInvitationRequests(){
+ const rows=$('invitationRows'),note=$('invitationListMessage');rows.innerHTML='';
+ if(!activeCompany||!membership||!['company_owner','company_admin','hr_admin'].includes(membership.role)){note.textContent='Invitation management unavailable.';return;}
+ const {data,error}=await client.from('employee_invitations').select('email,role,status').eq('company_id',activeCompany.id).order('created_at',{ascending:false});
+ if(error){note.textContent=friendlyError(error);return;}
+ rows.innerHTML=(data||[]).map(x=>'<tr><td>'+esc(x.email)+'</td><td>'+esc(x.role)+'</td><td>'+esc(x.status)+'</td></tr>').join('');
+ note.textContent=(data||[]).length+' invitation request(s)';
+}
+$('employeeInviteForm').onsubmit=async e=>{
+ e.preventDefault();const note=$('employeeInviteMessage');
+ if(!activeCompany||!membership||!['company_owner','company_admin'].includes(membership.role)){note.textContent='Only a Company Owner or Company Admin can request invitations.';return;}
+ const email=$('inviteEmployeeEmail').value.trim().toLowerCase(),role=$('inviteEmployeeRole').value;
+ if(!email||!['employee','manager','hr_admin','company_admin'].includes(role))return;
+ const {error}=await client.from('employee_invitations').insert({company_id:activeCompany.id,email,role,invited_by:currentUser.id,status:'pending'});
+ if(error){note.textContent=friendlyError(error);return;}
+ note.textContent='Invitation request saved. No email sent or account access granted.';$('employeeInviteForm').reset();await loadInvitationRequests();
+};
 async function loadExpenses(){
  if(!activeCompany){expenses=[];renderExpenses();return;}
  const {data,error}=await client.from('expenses').select('*').eq('company_id',activeCompany.id).eq('user_id',currentUser.id).order('expense_date',{ascending:false});if(error)throw error;expenses=data||[];renderExpenses();
