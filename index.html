@@ -23,7 +23,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
  <div class="tabs no-print"><button class="tab active" id="loginTab" type="button">Login</button><button class="tab" id="signupTab" type="button">Create account</button></div>
  <form id="authForm">
   <div id="signupFields" class="grid hidden">
-   <div class="field full"><label>Company name *</label><input id="company" autocomplete="organization" placeholder="Company / business name"></div>
+   <div class="field full"><label>Account type *</label><select id="signupAccountType"><option value="company">Register a new company</option><option value="employee">Join a company with an invitation</option></select></div><div class="field full" id="signupCompanyField"><label>Company name *</label><input id="company" autocomplete="organization" placeholder="Company / business name"></div><p class="muted hidden" id="employeeSignupHint">Use the same email address that your company invited. After verification and login, accept the invitation on your dashboard.</p>
    <div class="field"><label>Your name *</label><input id="person" autocomplete="name" placeholder="Full name"></div>
    <div class="field"><label>Designation</label><input id="designation" placeholder="Your designation"></div>
    <div class="field"><label>Mobile number</label><input id="mobile" inputmode="tel" maxlength="15" placeholder="Mobile number"></div>
@@ -123,12 +123,14 @@ function msg(id,text,isError=false){$(id).textContent=text||'';$(id).style.color
 function setMode(next){mode=next;const signup=next==='signup';$('loginTab').classList.toggle('active',!signup);$('signupTab').classList.toggle('active',signup);$('signupFields').classList.toggle('hidden',!signup);$('loginEmailField').classList.toggle('hidden',signup);$('forgotBtn').classList.toggle('hidden',signup);$('authSubmit').textContent=signup?'Create account':'Login';$('loginEmail').required=!signup;$('company').required=signup;$('person').required=signup;$('email').required=signup;$('password').autocomplete=signup?'new-password':'current-password';msg('authError','');msg('authMessage','');}
 $('loginTab').onclick=()=>setMode('login');$('signupTab').onclick=()=>setMode('signup');
 function friendlyError(e){const s=e?.message||'Something went wrong. Please try again.';if(/Invalid login credentials/i.test(s))return 'Email or password is incorrect.';if(/Email not confirmed/i.test(s))return 'Please verify your email using the link sent to your inbox.';if(/already registered/i.test(s))return 'This email is already registered. Please Login.';return s;}
+$('signupAccountType').onchange=()=>{const employee=$('signupAccountType').value==='employee';$('signupCompanyField').classList.toggle('hidden',employee);$('employeeSignupHint').classList.toggle('hidden',!employee);};
 $('authForm').addEventListener('submit',async e=>{e.preventDefault();if(!client){msg('authError','Secure login could not load. Please refresh the page.',true);return;}$('authSubmit').disabled=true;msg('authError','');msg('authMessage','Please wait...');
 try{
  if(mode==='signup'){
   const email=$('email').value.trim().toLowerCase(), full=$('person').value.trim(), company=$('company').value.trim(), password=$('password').value;
-  if(!company||!full||!email||password.length<8)throw new Error('Please complete required fields. Password must be at least 8 characters.');
-  const {data,error}=await client.auth.signUp({email,password,options:{emailRedirectTo:location.origin, data:{full_name:full,mobile:$('mobile').value.trim(),designation:$('designation').value.trim(),preferred_language:$('language').value,company_name:company}}});
+  const employeeSignup=$('signupAccountType').value==='employee';
+  if((!employeeSignup&&!company)||!full||!email||password.length<8)throw new Error('Please complete required fields. Password must be at least 8 characters.');
+  const {data,error}=await client.auth.signUp({email,password,options:{emailRedirectTo:location.origin, data:{full_name:full,mobile:$('mobile').value.trim(),designation:$('designation').value.trim(),preferred_language:$('language').value,company_name:employeeSignup?'':company}}});
   if(error)throw error;
   if(!data.session){msg('authMessage','Account created. Please open the verification email, confirm your address, then return here and Login.');}
   else {msg('authMessage','Account created. Preparing your company application...');await loadApp(data.user);}
