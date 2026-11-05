@@ -149,8 +149,8 @@ async function loadMyInvitations(){
 async function loadApp(user){
  currentUser=user;
  const p=await client.from('profiles').select('*').eq('id',user.id).single();if(p.error)throw p.error;profile=p.data;if(profile.account_status==='suspended'){await client.auth.signOut();currentUser=null;profile=null;throw new Error('This account is suspended. Please contact Daily Kharcha support.');}
- await ensureCompanyApplication();
  await loadMyInvitations();
+ if($('myInvitationsPanel').classList.contains('hidden')) await ensureCompanyApplication();
  const m=await client.from('company_memberships').select('company_id,role,status').eq('user_id',user.id).eq('status','active');if(m.error)throw m.error;
  membership=m.data?.[0]||null;activeCompany=null;
  if(membership){const c=await client.from('companies').select('*').eq('id',membership.company_id).single();if(!c.error)activeCompany=c.data;}
