@@ -13,7 +13,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 @page{size:A4 portrait;margin:14mm}
 @media print{body{background:white;font-size:11px}header,.no-print,.tabs,.form-panel,.screen-only{display:none!important}main{max-width:none;margin:0;padding:0}.panel,.stat{box-shadow:none;border:0;padding:0}.print-head{display:block;margin-bottom:16px}.print-head h2{font-size:18px;margin:0 0 4px}.print-head p{margin:2px 0}.stats{grid-template-columns:repeat(3,1fr);margin:10px 0 15px}.stat{border:1px solid #bbb;padding:8px}.stat strong{font-size:15px}table{min-width:0}th,td{padding:7px 5px;border-bottom:1px solid #bbb}th{color:#333}.table-wrap{overflow:visible}.print-hide{display:none!important}}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
 </head>
 <body>
 <header><div class="brand"><img class="brand-original" src="daily-kharcha-original-logo.svg" alt="Daily Kharcha original logo and slogan"><div class="brand-copy"><h1>Daily Kharcha</h1><small>हर खर्च का हिसाब, एक ही जगह।</small></div></div><div class="header-actions"><select id="language" aria-label="Language" class="btn outline"><option value="en">English</option><option value="hi">हिन्दी</option><option value="mr">मराठी</option><option value="gu">ગુજરાતી</option><option value="kn">ಕನ್ನಡ</option><option value="ur">اردو</option></select><button id="logoutBtn" class="btn outline hidden">Log out</button></div></header>
@@ -115,6 +115,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
  <section id="adminTabPanel" class="panel hidden"><h3>Owner Admin – Daily Kharcha</h3><p class="muted">Platform overview and company signup requests.</p><div class="stats"><div class="stat"><small>Registered users</small><strong id="adminUserCount">—</strong></div><div class="stat"><small>Company applications</small><strong id="adminCompanyCount">—</strong></div><div class="stat"><small>Expense entries</small><strong id="adminExpenseCount">—</strong></div></div><div class="row between" style="margin:18px 0 10px;gap:12px"><h3 style="margin:0">User Management</h3><input id="adminUserSearch" type="search" placeholder="Search name, mobile, designation or user ID" aria-label="Search registered users" style="max-width:360px;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px"></div><p class="muted small">Manage account access. Suspended accounts cannot use company features. Existing records are retained.</p><div class="table-wrap"><table><thead><tr><th>Name</th><th>Mobile</th><th>Designation</th><th>Company</th><th>Account</th><th>Access</th><th>User ID</th><th>Joined</th><th>Action</th></tr></thead><tbody id="adminUsersRows"></tbody></table><div id="adminUsersEmpty" class="empty">No matching user profiles found.</div></div><hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h3>Company applications</h3><p class="muted">Approving an application activates its owner membership.</p><p id="adminMessage" class="muted"></p><div class="table-wrap"><table><thead><tr><th>Company</th><th>Contact</th><th>Email</th><th>Mobile</th><th>Status</th><th>Action</th></tr></thead><tbody id="applicationsRows"></tbody></table><div id="applicationsEmpty" class="empty">No company applications found.</div></div></section>
 </section>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (() => {
 'use strict';
@@ -156,9 +157,8 @@ async function loadApp(user){
  $('salaryApprovalPanel').classList.toggle('hidden',!canApproveSalary());if(canApproveSalary())refreshSalaryApprovals();
  $('companyTabButton').classList.toggle('hidden',!activeCompany||!['company_owner','company_admin','hr_admin'].includes(membership?.role));
  $('companyDashName').textContent=activeCompany?.company_name||'—';$('companyDashStatus').textContent=activeCompany?.status||'—';$('companyDashRole').textContent=membership?.role||'—';
- await loadCompanyMembers();
+ // Load secondary company data after the primary screen is visible.
  $('employeeInvitePanel').classList.toggle('hidden',!membership||!['company_owner','company_admin'].includes(membership.role));
- await loadInvitationRequests();
  $('authView').classList.add('hidden');$('appView').classList.remove('hidden');$('logoutBtn').classList.remove('hidden');
  $('adminTab').classList.toggle('hidden',!isAdmin);
  $('welcomeTitle').textContent='Hello, '+(profile.full_name||user.email);
@@ -167,9 +167,11 @@ async function loadApp(user){
  $('language').value=profile.preferred_language||'en';
  const notice=$('accessNotice');notice.classList.toggle('hidden',!!activeCompany||isAdmin);
  if(!activeCompany&&!isAdmin){notice.innerHTML='<strong>Company approval pending.</strong><br>Your signup has been received. The Daily Kharcha Owner/Admin must approve your company before expense and attendance features become available. You can log in again later to check status.';}
- if(activeCompany||isAdmin){await loadExpenses();await loadAttendance();}else{expenses=[];attendance=[];renderExpenses();renderAttendance();}
- if(isAdmin)await loadApplications();
  showTab('expenses');
+ if(activeCompany||isAdmin){
+  await Promise.allSettled([loadExpenses(),loadAttendance(),loadCompanyMembers(),loadInvitationRequests(),...(isAdmin?[loadApplications()]:[])]);
+ }else{expenses=[];attendance=[];renderExpenses();renderAttendance();}
+
 }
 async function ensureCompanyApplication(){
  if(profile?.is_platform_admin || currentUser.email?.toLowerCase()==='admin@dailykharcha.in')return;
