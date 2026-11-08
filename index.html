@@ -239,7 +239,20 @@ $('resetForm').addEventListener('submit',async e=>{
  }catch(err){msg('resetMessage',friendlyError(err),true);}
  finally{$('resetSubmit').disabled=false;}
 });
-async function init(){if(!client){msg('authError','Could not load secure login. Please refresh.',true);return;}const {data:{session}}=await client.auth.getSession();if(session?.user && !recoveryMode && !location.hash.includes('type=recovery')){try{await loadApp(session.user);}catch(e){msg('authError',friendlyError(e),true);}}client.auth.onAuthStateChange((event,session)=>{if(event==='PASSWORD_RECOVERY'){showRecoveryForm();}if(!session&&currentUser){currentUser=null;$('appView').classList.add('hidden');$('authView').classList.remove('hidden');$('logoutBtn').classList.add('hidden');}});}
+async function init(){
+ if(!client){msg('authError','Could not load secure login. Please refresh.',true);return;}
+ const recoveryLink=/[?#&]type=recovery(?:&|$)/.test(location.hash)||new URLSearchParams(location.search).get('type')==='recovery';
+ // Register before reading the session: Supabase may emit PASSWORD_RECOVERY during initialization.
+ client.auth.onAuthStateChange((event,session)=>{
+  if(event==='PASSWORD_RECOVERY'){showRecoveryForm();}
+  if(event==='INITIAL_SESSION' && recoveryLink && session?.user){showRecoveryForm();}
+  if(!session&&currentUser){currentUser=null;$('appView').classList.add('hidden');$('authView').classList.remove('hidden');$('logoutBtn').classList.add('hidden');}
+ });
+ const {data:{session},error}=await client.auth.getSession();
+ if(error){msg('authError',friendlyError(error),true);return;}
+ if(recoveryLink && session?.user){showRecoveryForm();return;}
+ if(session?.user && !recoveryMode){try{await loadApp(session.user);}catch(e){msg('authError',friendlyError(e),true);}}
+}
 init();
 })();
 </script>
