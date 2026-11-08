@@ -76,7 +76,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
   <div class="panel"><h3 class="section-title">Attendance history</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Punch In</th><th>Punch Out</th><th>Location consent</th><th>Status</th></tr></thead><tbody id="attendanceRows"></tbody></table><div id="attendanceEmpty" class="empty">No attendance records yet.</div></div></div>
  </section>
  <section id="salaryTab" class="panel hidden">
-<h3>Employee Salary Slip</h3><p class="muted">Professional salary slip preview. Amounts are calculated from individual entries; no payroll data is saved yet.</p>
+<h3>Employee Salary Slip</h3><p class="muted">Monthly salary draft with secure save and retrieval. Final approval is not yet enabled.</p>
 <div class="grid">
 <div class="field"><label>Employee ID</label><input id="salaryEmpId" placeholder="e.g. AYZ"></div>
 <div class="field"><label>Employee Name</label><input id="salaryEmployee" placeholder="Full name"></div>
@@ -104,7 +104,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="field"><label>Welfare Fund (₹)</label><input id="salaryWelfare" type="number" min="0" step="0.01"></div>
 </div>
 <div class="stats" style="margin-top:16px"><div class="stat"><small>Total Earnings</small><strong id="salaryEarningsPreview">₹0.00</strong></div><div class="stat"><small>Total Deductions</small><strong id="salaryDeductionsPreview">₹0.00</strong></div><div class="stat"><small>Net Pay</small><strong id="salaryNetPreview">₹0.00</strong></div></div>
-<div class="row" style="margin-top:12px"><button class="btn light" id="salaryDraftPrint" type="button">Print Draft Salary Slip</button><span class="muted">Draft only — not approved or final</span></div><p class="note">Preview only: values are not saved or sent to the server. Final salary slips require secure payroll storage and Admin/HR approval.</p>
+<div class="row" style="margin-top:12px"><button class="btn" id="salarySave" type="button">Save Salary Draft</button><button class="btn light" id="salaryLoad" type="button">Load Saved Draft</button><button class="btn light" id="salaryDraftPrint" type="button">Print Draft Salary Slip</button><span class="muted">Draft only — not approved or final</span></div><p class="note">Drafts are stored securely for your active company and account. Final salary slips require Admin/HR approval.</p>
 </section>
  <section id="accessoriesTab" class="panel hidden"><h3>Accessories</h3><p class="muted">Accessories and product records</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
  <section id="samplesTab" class="panel hidden"><h3>Samples</h3><p class="muted">Sample issue, return and approval tracking</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
@@ -292,6 +292,25 @@ function syncSalaryMonthDays(){
 $('salaryMonth').value=$('monthFilter').value;
 syncSalaryMonthDays();
 $('salaryMonth').addEventListener('change',syncSalaryMonthDays);
+const salaryFields=['salaryEmpId','salaryEmployee','salaryDepartment','salaryDoj','salaryMonth','salaryDays','salaryUan','salaryEsi','salaryBasic','salaryHra','salaryConveyance','salaryTa','salarySpecial','salaryLeave','salaryTds','salaryEsic','salaryPf','salaryAdvance','salaryOthers','salaryWelfare'];
+function salaryDraftData(){return Object.fromEntries(salaryFields.map(id=>[id,$(id).value]));}
+$('salarySave').onclick=async()=>{
+ if(!currentUser||!activeCompany?.id){alert('Please sign in and select an approved company first.');return;}
+ const month=$('salaryMonth').value;if(!/^\d{4}-\d{2}$/.test(month)){alert('Select salary month first.');return;}
+ const payload={company_id:activeCompany.id,user_id:currentUser.id,salary_month:month,details:salaryDraftData(),status:'draft'};
+ const {error}=await client.from('salary_slips').upsert(payload,{onConflict:'company_id,user_id,salary_month'});
+ alert(error?'Unable to save salary draft: '+error.message:'Salary draft saved securely.');
+};
+$('salaryLoad').onclick=async()=>{
+ if(!currentUser||!activeCompany?.id){alert('Please sign in and select an approved company first.');return;}
+ const month=$('salaryMonth').value;if(!/^\d{4}-\d{2}$/.test(month)){alert('Select salary month first.');return;}
+ const {data,error}=await client.from('salary_slips').select('details,status').eq('company_id',activeCompany.id).eq('user_id',currentUser.id).eq('salary_month',month).maybeSingle();
+ if(error){alert('Unable to load salary draft: '+error.message);return;}
+ if(!data){alert('No saved salary draft for this month.');return;}
+ if(data.status!=='draft'){alert('This salary slip is not editable.');return;}
+ salaryFields.forEach(id=>{if(data.details&&Object.prototype.hasOwnProperty.call(data.details,id))$(id).value=String(data.details[id]??'');});
+ updateSalaryPreview();alert('Saved salary draft loaded.');
+};
 const salaryEarningIds=['salaryBasic','salaryHra','salaryConveyance','salaryTa','salarySpecial','salaryLeave'];
 const salaryDeductionIds=['salaryTds','salaryEsic','salaryPf','salaryAdvance','salaryOthers','salaryWelfare'];
 function updateSalaryPreview(){const sum=ids=>ids.reduce((total,id)=>total+(Number($(id).value)||0),0);const earnings=sum(salaryEarningIds),deductions=sum(salaryDeductionIds),net=earnings-deductions;const fmt=n=>n.toLocaleString('en-IN',{style:'currency',currency:'INR'});$('salaryEarningsPreview').textContent=fmt(earnings);$('salaryDeductionsPreview').textContent=fmt(deductions);$('salaryNetPreview').textContent=fmt(net);$('salaryNetPreview').style.color=net<0?'#a53b32':'';}
