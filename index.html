@@ -33,6 +33,13 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
   <p id="authError" class="error" role="alert"></p><p id="authMessage" class="success" role="status"></p>
   <div class="row"><button class="btn" id="authSubmit" type="submit">Login</button><button class="btn light" id="forgotBtn" type="button">Forgot password?</button></div>
  </form>
+ <form id="resetForm" class="hidden" autocomplete="off">
+  <h3>Set a new password</h3>
+  <div class="field"><label for="newPassword">New password</label><input id="newPassword" type="password" minlength="8" autocomplete="new-password" required></div>
+  <div class="field" style="margin-top:12px"><label for="confirmNewPassword">Confirm new password</label><input id="confirmNewPassword" type="password" minlength="8" autocomplete="new-password" required></div>
+  <p id="resetMessage" role="status"></p>
+  <button class="btn" id="resetSubmit" type="submit">Update password</button>
+ </form>
  <p class="note">Your account and records are securely stored in the Daily Kharcha database. Never share your password or email verification code.</p>
 </section>
 <section id="appView" class="hidden">
@@ -100,7 +107,7 @@ try{
  }
 }catch(err){msg('authError',friendlyError(err),true);msg('authMessage','');}finally{$('authSubmit').disabled=false;}
 });
-$('forgotBtn').onclick=async()=>{const email=(mode==='signup'?$('email').value:$('loginEmail').value).trim();if(!email){msg('authError','Enter your email address first.',true);return;}const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:location.origin});if(error)msg('authError',friendlyError(error),true);else msg('authMessage','Password reset link sent. Please check your email.');};
+$('forgotBtn').onclick=async()=>{const email=(mode==='signup'?$('email').value:$('loginEmail').value).trim();if(!email){msg('authError','Enter your email address first.',true);return;}const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:location.origin+'/'});if(error)msg('authError',friendlyError(error),true);else msg('authMessage','Password reset link sent. Please check your email.');};
 async function loadApp(user){
  currentUser=user;
  const p=await client.from('profiles').select('*').eq('id',user.id).single();if(p.error)throw p.error;profile=p.data;if(profile.account_status==='suspended'){await client.auth.signOut();currentUser=null;profile=null;throw new Error('This account is suspended. Please contact Daily Kharcha support.');}
@@ -205,7 +212,34 @@ function showTab(tab){activeTab=tab;['expenses','attendance','profile','admin'].
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 $('language').onchange=async e=>{if(currentUser){const {error}=await client.from('profiles').update({preferred_language:e.target.value}).eq('id',currentUser.id);if(!error){profile.preferred_language=e.target.value;$('profileLanguage').value=e.target.value;}}};
 $('logoutBtn').onclick=async()=>{await client.auth.signOut();currentUser=null;profile=null;activeCompany=null;membership=null;isAdmin=false;expenses=[];attendance=[];editingId=null;$('appView').classList.add('hidden');$('authView').classList.remove('hidden');$('logoutBtn').classList.add('hidden');$('password').value='';setMode('login');};
-async function init(){if(!client){msg('authError','Could not load secure login. Please refresh.',true);return;}const {data:{session}}=await client.auth.getSession();if(session?.user){try{await loadApp(session.user);}catch(e){msg('authError',friendlyError(e),true);}}client.auth.onAuthStateChange((event,session)=>{if(event==='PASSWORD_RECOVERY'){msg('authMessage','Enter your new password after following the email link.');}if(!session&&currentUser){currentUser=null;$('appView').classList.add('hidden');$('authView').classList.remove('hidden');$('logoutBtn').classList.add('hidden');}});}
+let recoveryMode=false;
+function showRecoveryForm(){
+ recoveryMode=true;
+ $('authView').classList.remove('hidden');$('appView').classList.add('hidden');
+ $('authForm').classList.add('hidden');$('authView').querySelector('.tabs').classList.add('hidden');
+ $('resetForm').classList.remove('hidden');$('logoutBtn').classList.add('hidden');
+ msg('resetMessage','Choose a new password with at least 8 characters.');
+}
+$('resetForm').addEventListener('submit',async e=>{
+ e.preventDefault();
+ const password=$('newPassword').value;
+ if(password.length<8){msg('resetMessage','Use at least 8 characters.',true);return;}
+ if(password!==$('confirmNewPassword').value){msg('resetMessage','Passwords do not match.',true);return;}
+ $('resetSubmit').disabled=true;
+ try{
+  const {error}=await client.auth.updateUser({password});
+  if(error)throw error;
+  $('newPassword').value='';$('confirmNewPassword').value='';
+  msg('resetMessage','Password updated successfully. You can now log in.');
+  await client.auth.signOut();
+  recoveryMode=false;
+  $('resetForm').classList.add('hidden');$('authForm').classList.remove('hidden');
+  $('authView').querySelector('.tabs').classList.remove('hidden');setMode('login');
+  msg('authMessage','Password updated successfully. Please log in with your new password.');
+ }catch(err){msg('resetMessage',friendlyError(err),true);}
+ finally{$('resetSubmit').disabled=false;}
+});
+async function init(){if(!client){msg('authError','Could not load secure login. Please refresh.',true);return;}const {data:{session}}=await client.auth.getSession();if(session?.user && !recoveryMode && !location.hash.includes('type=recovery')){try{await loadApp(session.user);}catch(e){msg('authError',friendlyError(e),true);}}client.auth.onAuthStateChange((event,session)=>{if(event==='PASSWORD_RECOVERY'){showRecoveryForm();}if(!session&&currentUser){currentUser=null;$('appView').classList.add('hidden');$('authView').classList.remove('hidden');$('logoutBtn').classList.add('hidden');}});}
 init();
 })();
 </script>
