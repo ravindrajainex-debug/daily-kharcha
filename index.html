@@ -297,7 +297,8 @@ function salaryDraftData(){return Object.fromEntries(salaryFields.map(id=>[id,$(
 $('salarySave').onclick=async()=>{
  if(!currentUser||!activeCompany?.id){alert('Please sign in and select an approved company first.');return;}
  const month=$('salaryMonth').value;if(!/^\d{4}-\d{2}$/.test(month)){alert('Select salary month first.');return;}
- const amounts=[...salaryEarningIds,...salaryDeductionIds].map(id=>Number($(id).value||0));if(amounts.some(n=>!Number.isFinite(n)||n<0)){alert('Salary amounts must be valid non-negative numbers.');return;}\n const payload={company_id:activeCompany.id,user_id:currentUser.id,salary_month:month,details:salaryDraftData(),status:'draft'};
+ const amounts=[...salaryEarningIds,...salaryDeductionIds].map(id=>Number($(id).value||0));if(amounts.some(n=>!Number.isFinite(n)||n<0)){alert('Salary amounts must be valid non-negative numbers.');return;} 
+ const payload={company_id:activeCompany.id,user_id:currentUser.id,salary_month:month,details:salaryDraftData(),status:'draft'};
  const {error}=await client.from('salary_slips').upsert(payload,{onConflict:'company_id,user_id,salary_month'});
  $('salarySaveStatus').textContent=error?'Save failed: '+error.message:'Saved successfully for '+month; if(error)alert('Unable to save salary draft: '+error.message);
 };
