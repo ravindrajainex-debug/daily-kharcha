@@ -353,7 +353,7 @@ $('salaryFinalPrint').onclick=async()=>{const {data,error}=await client.from('sa
 $('bulkSalaryGenerate').onclick=async()=>{
  if(!canApproveSalary()){alert('Only HR/Admin can generate bulk payroll.');return;}
  const source=$('bulkSalarySource').value;
- if(!/^\\d{4}-(0[1-9]|1[0-2])$/.test(source)){alert('Select a valid source month.');return;}
+ if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(source)){alert('Select a valid source month.');return;}
  const [y,m]=source.split('-').map(Number),target=new Date(Date.UTC(y,m,1)).toISOString().slice(0,7);
  if(!confirm('Generate new DRAFT salary slips for '+target+' from approved '+source+' slips? Existing slips will remain unchanged. Review all amounts and attendance before approving.'))return;
  const btn=$('bulkSalaryGenerate');btn.disabled=true;
