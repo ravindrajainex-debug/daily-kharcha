@@ -169,7 +169,8 @@ async function loadApp(user){
  if(!activeCompany&&!isAdmin){notice.innerHTML='<strong>Company approval pending.</strong><br>Your signup has been received. The Daily Kharcha Owner/Admin must approve your company before expense and attendance features become available. You can log in again later to check status.';}
  showTab('expenses');
  if(activeCompany||isAdmin){
-  await Promise.allSettled([loadExpenses(),loadAttendance(),loadCompanyMembers(),loadInvitationRequests(),...(isAdmin?[loadApplications()]:[])]);
+  await Promise.allSettled([loadExpenses(),loadAttendance()]);
+ // Secondary management data loads only when its tab is opened.
  }else{expenses=[];attendance=[];renderExpenses();renderAttendance();}
 
 }
@@ -285,7 +286,7 @@ async function loadApplications(){
 $('applicationsRows').onclick=async e=>{const approve=e.target.dataset.approve,reject=e.target.dataset.reject;if(!approve&&!reject)return;const id=approve||reject;const actionButton=e.target;actionButton.disabled=true;if(approve){const result=await client.rpc('approve_company_application',{p_company_id:id});if(result.error){msg('adminMessage',friendlyError(result.error),true);await loadApplications();return;}msg('adminMessage','Company approved and owner membership activated.');}else{const upd=await client.from('companies').update({status:'rejected'}).eq('id',id);if(upd.error){msg('adminMessage',friendlyError(upd.error),true);return;}msg('adminMessage','Company application rejected.');}await loadApplications();};
 $('refreshCompanyMembers').onclick=()=>loadCompanyMembers();
 function showTab(tab){activeTab=tab;['company','expenses','attendance','salary','accessories','samples','orders','about','profile','admin'].forEach(t=>{const section=t==='admin'?'adminTabPanel':t+'Tab';const el=$(section);if(el)el.classList.toggle('hidden',t!==tab);});document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));}
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=async()=>{const tab=b.dataset.tab;showTab(tab);if(tab==='company')await Promise.allSettled([loadCompanyMembers(),loadInvitationRequests()]);if(tab==='admin'&&isAdmin)await loadApplications();});
 // Default the draft to the selected month and its calendar-day count.
 function syncSalaryMonthDays(){
  const month=$('salaryMonth').value;
