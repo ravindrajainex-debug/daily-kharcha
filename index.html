@@ -105,7 +105,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 </div>
 <div class="stats" style="margin-top:16px"><div class="stat"><small>Total Earnings</small><strong id="salaryEarningsPreview">₹0.00</strong></div><div class="stat"><small>Total Deductions</small><strong id="salaryDeductionsPreview">₹0.00</strong></div><div class="stat"><small>Net Pay</small><strong id="salaryNetPreview">₹0.00</strong></div></div>
 <div class="row" style="margin-top:12px"><button class="btn" id="salarySave" type="button">Save Salary Draft</button><span id="salarySaveStatus" class="muted" role="status"></span><button class="btn light" id="salaryLoad" type="button">Load Saved Draft</button><button class="btn light" id="salaryNextMonth" type="button">Prepare Next Month Draft</button><button class="btn light" id="salaryDraftPrint" type="button">Print Draft Salary Slip</button><button class="btn light hidden" id="salaryFinalPrint" type="button">Print Final Approved Slip</button><span class="muted" id="salaryStatusLabel">Draft only — not approved or final</span></div><p class="note">Drafts are stored securely for your active company and account. Final salary slips require Admin/HR approval.</p>
-<div id="salaryApprovalPanel" class="hidden"><h4>Bulk Monthly Salary Preparation</h4><p class="note">Preview employees with approved slips in the source month. No salary is created or changed during preview.</p><div class="row"><label for="bulkSalarySource">Approved source month</label><input id="bulkSalarySource" type="month"><button class="btn light" id="bulkSalaryPreview" type="button">Preview Bulk Salary</button></div><p id="bulkSalaryMessage" role="status"></p><div id="bulkSalaryList"></div><h4>HR / Admin Salary Approvals</h4><button class="btn light" id="salaryRefreshApprovals" type="button">Refresh Pending Drafts</button><p id="salaryApprovalMessage"></p><div id="salaryApprovalList"></div></div>
+<div id="salaryApprovalPanel" class="hidden"><h4>Bulk Monthly Salary Preparation</h4><p class="note">Preview employees with approved slips in the source month. No salary is created or changed during preview.</p><div class="row"><label for="bulkSalarySource">Approved source month</label><input id="bulkSalarySource" type="month"><button class="btn light" id="bulkSalaryPreview" type="button">Preview Bulk Salary</button><button class="btn" id="bulkSalaryGenerate" type="button">Generate Bulk Salary Drafts</button></div><p id="bulkSalaryMessage" role="status"></p><div id="bulkSalaryList"></div><h4>HR / Admin Salary Approvals</h4><button class="btn light" id="salaryRefreshApprovals" type="button">Refresh Pending Drafts</button><p id="salaryApprovalMessage"></p><div id="salaryApprovalList"></div></div>
 </section>
  <section id="accessoriesTab" class="panel hidden"><h3>Accessories</h3><p class="muted">Accessories and product records</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
  <section id="samplesTab" class="panel hidden"><h3>Samples</h3><p class="muted">Sample issue, return and approval tracking</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
@@ -350,6 +350,20 @@ function printSalarySlip(finalApproved=false){const val=id=>$(id).value.trim(),m
 $('salaryDraftPrint').onclick=()=>printSalarySlip(false);
 $('salaryFinalPrint').onclick=async()=>{const {data,error}=await client.from('salary_slips').select('details,status').eq('company_id',activeCompany.id).eq('user_id',currentUser.id).eq('salary_month',$('salaryMonth').value).maybeSingle();if(error||data?.status!=='approved'){alert('Final print requires an approved salary slip.');return;}salaryFields.forEach(id=>{if(Object.prototype.hasOwnProperty.call(data.details||{},id))$(id).value=String(data.details[id]??'');});salarySetStatus('approved');updateSalaryPreview();printSalarySlip(true);};
 
+$('bulkSalaryGenerate').onclick=async()=>{
+ if(!canApproveSalary()){alert('Only HR/Admin can generate bulk payroll.');return;}
+ const source=$('bulkSalarySource').value;
+ if(!/^\\d{4}-(0[1-9]|1[0-2])$/.test(source)){alert('Select a valid source month.');return;}
+ const [y,m]=source.split('-').map(Number),target=new Date(Date.UTC(y,m,1)).toISOString().slice(0,7);
+ if(!confirm('Generate new DRAFT salary slips for '+target+' from approved '+source+' slips? Existing slips will remain unchanged. Review all amounts and attendance before approving.'))return;
+ const btn=$('bulkSalaryGenerate');btn.disabled=true;
+ const {data,error}=await client.rpc('prepare_bulk_salary_drafts',{p_company_id:activeCompany.id,p_source_month:source});
+ btn.disabled=false;
+ if(error){$('bulkSalaryMessage').textContent='Generation failed: '+error.message;return;}
+ $('bulkSalaryMessage').textContent=(Number(data)||0)+' new draft(s) created for '+target+'. Existing slips unchanged. Review and approve individually.';
+ await $('bulkSalaryPreview').onclick();
+ await refreshSalaryApprovals();
+};
 $('bulkSalaryPreview').onclick=async()=>{
  if(!canApproveSalary()){alert('Only active Company Owner, Company Admin or HR Admin can preview bulk payroll.');return;}
  const source=$('bulkSalarySource').value;
