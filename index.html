@@ -282,6 +282,16 @@ $('applicationsRows').onclick=async e=>{const approve=e.target.dataset.approve,r
 $('refreshCompanyMembers').onclick=()=>loadCompanyMembers();
 function showTab(tab){activeTab=tab;['company','expenses','attendance','salary','accessories','samples','orders','about','profile','admin'].forEach(t=>{const section=t==='admin'?'adminTabPanel':t+'Tab';const el=$(section);if(el)el.classList.toggle('hidden',t!==tab);});document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+// Default the draft to the selected month and its calendar-day count.
+function syncSalaryMonthDays(){
+ const month=$('salaryMonth').value;
+ if(!/^\d{4}-\d{2}$/.test(month))return;
+ const [year,monthNumber]=month.split('-').map(Number);
+ $('salaryDays').value=new Date(year,monthNumber,0).getDate();
+}
+$('salaryMonth').value=$('monthFilter').value;
+syncSalaryMonthDays();
+$('salaryMonth').addEventListener('change',syncSalaryMonthDays);
 const salaryEarningIds=['salaryBasic','salaryHra','salaryConveyance','salaryTa','salarySpecial','salaryLeave'];
 const salaryDeductionIds=['salaryTds','salaryEsic','salaryPf','salaryAdvance','salaryOthers','salaryWelfare'];
 function updateSalaryPreview(){const sum=ids=>ids.reduce((total,id)=>total+(Number($(id).value)||0),0);const earnings=sum(salaryEarningIds),deductions=sum(salaryDeductionIds),net=earnings-deductions;const fmt=n=>n.toLocaleString('en-IN',{style:'currency',currency:'INR'});$('salaryEarningsPreview').textContent=fmt(earnings);$('salaryDeductionsPreview').textContent=fmt(deductions);$('salaryNetPreview').textContent=fmt(net);$('salaryNetPreview').style.color=net<0?'#a53b32':'';}
