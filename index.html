@@ -181,8 +181,11 @@ async function loadApp(user){
  isAdmin=!!profile.is_platform_admin;
  const payrollEditor=canApproveSalary();
  ['salarySave','salaryNextMonth','salaryDraftPrint'].forEach(id=>$(id).classList.toggle('hidden',!payrollEditor));
+ $('salaryLoad').textContent=payrollEditor?'Load Saved Draft':'View Approved Salary Slip';
+ $('salaryTab').querySelector('p.note').textContent=payrollEditor?'Drafts are stored securely. Final salary slips require HR/Admin approval.':'Only HR/Admin-approved salary slips are available to employees. Select a month and click View Approved Salary Slip.';
  salaryFields.filter(id=>id!=='salaryMonth').forEach(id=>{$(id).readOnly=!payrollEditor;});
  $('salaryTab').querySelector('h3').textContent=payrollEditor?'Employee Salary Slip':'My Approved Salary Slip';
+ salarySetStatus(salaryLoadedStatus);
  $('salaryTab').querySelector('p.muted').textContent=payrollEditor?'Prepare and approve company payroll.':'View and print your approved monthly salary slip. Only HR/Admin can prepare or change salary.';
  $('salaryApprovalPanel').classList.toggle('hidden',!canApproveSalary());if(canApproveSalary())refreshSalaryApprovals();
  const companyDashboardAllowed=!!activeCompany&&activeCompany.status==='active'&&membership?.status==='active'&&['company_owner','company_admin','hr_admin'].includes(membership.role);
@@ -391,8 +394,8 @@ const salaryFields=['salaryEmpId','salaryEmployee','salaryDepartment','salaryDoj
 let salaryLoadedStatus='draft';
 let salaryLoadedMonth=null;
 const canApproveSalary=()=>!!activeCompany&&['company_owner','company_admin','hr_admin'].includes(membership?.role);
-function salarySetStatus(s){salaryLoadedStatus=s;$('salaryStatusLabel').textContent=s==='approved'?'APPROVED — FINAL':'DRAFT — NOT APPROVED';$('salaryFinalPrint').classList.toggle('hidden',s!=='approved');$('salarySave').disabled=s==='approved';}
-$('salaryMonth').addEventListener('change',()=>{salaryLoadedMonth=null;salarySetStatus('draft');$('salarySaveStatus').textContent='Month changed. Click Load Saved Draft to view the selected month before printing.';});
+function salarySetStatus(s){salaryLoadedStatus=s;const payrollEditor=canApproveSalary();$('salaryStatusLabel').textContent=s==='approved'?'APPROVED — FINAL':payrollEditor?'DRAFT — NOT APPROVED':'No approved salary slip loaded';$('salaryFinalPrint').classList.toggle('hidden',s!=='approved');$('salarySave').disabled=s==='approved';}
+$('salaryMonth').addEventListener('change',()=>{salaryLoadedMonth=null;salarySetStatus('draft');$('salarySaveStatus').textContent=canApproveSalary()?'Month changed. Load the saved draft before printing.':'Month changed. Click View Approved Salary Slip.';});
 function salaryDraftData(){return Object.fromEntries(salaryFields.map(id=>[id,$(id).value]));}
 
 $('salaryNextMonth').onclick=async()=>{if(!canApproveSalary())return;
@@ -432,8 +435,8 @@ $('salaryLoad').onclick=async()=>{
  if(!currentUser||!activeCompany?.id){alert('Please sign in and select an approved company first.');return;}
  const month=$('salaryMonth').value;if(!/^\d{4}-\d{2}$/.test(month)){alert('Select salary month first.');return;}
  const {data,error}=await client.from('salary_slips').select('details,status').eq('company_id',activeCompany.id).eq('user_id',currentUser.id).eq('salary_month',month).maybeSingle();
- if(error){alert('Unable to load salary draft: '+error.message);return;}
- if(!data){alert('No saved salary draft for this month.');return;}
+ if(error){alert('Unable to load salary slip: '+error.message);return;}
+ if(!data||(!canApproveSalary()&&data.status!=='approved')){salaryLoadedMonth=null;salarySetStatus('draft');salaryFields.filter(id=>id!=='salaryMonth').forEach(id=>$(id).value='');updateSalaryPreview();$('salarySaveStatus').textContent='No approved salary slip available for '+month;return;}
  salaryLoadedMonth=month;salarySetStatus(data.status);
  salaryFields.filter(id=>id!=='salaryMonth').forEach(id=>{if(data.details&&Object.prototype.hasOwnProperty.call(data.details,id))$(id).value=String(data.details[id]??'');});
  updateSalaryPreview();$('salarySaveStatus').textContent='Loaded '+data.status+' salary slip for '+month;
