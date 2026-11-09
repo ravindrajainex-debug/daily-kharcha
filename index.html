@@ -107,7 +107,18 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="row" style="margin-top:12px"><button class="btn" id="salarySave" type="button">Save Salary Draft</button><span id="salarySaveStatus" class="muted" role="status"></span><button class="btn light" id="salaryLoad" type="button">Load Saved Draft</button><button class="btn light" id="salaryNextMonth" type="button">Prepare Next Month Draft</button><button class="btn light" id="salaryDraftPrint" type="button">Print Draft Salary Slip</button><button class="btn light hidden" id="salaryFinalPrint" type="button">Print Final Approved Slip</button><span class="muted" id="salaryStatusLabel">Draft only — not approved or final</span></div><p class="note">Drafts are stored securely for your active company and account. Final salary slips require Admin/HR approval.</p>
 <div id="salaryApprovalPanel" class="hidden"><h4>Bulk Monthly Salary Preparation</h4><p class="note">Preview employees with approved slips in the source month. No salary is created or changed during preview.</p><div class="row"><label for="bulkSalarySource">Approved source month</label><input id="bulkSalarySource" type="month"><button class="btn light" id="bulkSalaryPreview" type="button">Preview Bulk Salary</button><button class="btn" id="bulkSalaryGenerate" type="button">Generate Bulk Salary Drafts</button></div><p id="bulkSalaryMessage" role="status"></p><div id="bulkSalaryList"></div><h4>HR / Admin Salary Approvals</h4><button class="btn light" id="salaryRefreshApprovals" type="button">Refresh Pending Drafts</button><p id="salaryApprovalMessage"></p><div id="salaryApprovalList"></div></div>
 </section>
- <section id="accessoriesTab" class="panel hidden"><h3>Accessories</h3><p class="muted">Accessories and product records</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
+ <section id="accessoriesTab" class="panel hidden"><h3>Employee Accessories Issue / Return</h3><p class="muted">Track items issued to employees and record returns. No inventory management.</p>
+<div id="accessoryEditor"><form id="accessoryIssueForm" class="grid">
+<div class="field"><label>Employee *</label><select id="accessoryEmployee" required><option value="">Select employee</option></select></div>
+<div class="field"><label>Accessory Name *</label><input id="accessoryName" required maxlength="120" placeholder="Laptop, ID card, charger"></div>
+<div class="field"><label>Item / Serial Code</label><input id="accessoryCode" maxlength="100"></div>
+<div class="field"><label>Quantity *</label><input id="accessoryQty" type="number" min="1" max="10000" value="1" required></div>
+<div class="field"><label>Issue Date *</label><input id="accessoryIssueDate" type="date" required></div>
+<div class="field"><label>Expected Return Date</label><input id="accessoryDueDate" type="date"></div>
+<div class="field"><label>Notes</label><input id="accessoryNotes" maxlength="500"></div>
+<div class="field"><label>&nbsp;</label><button id="accessoryIssueButton" type="submit">Issue to Employee</button></div>
+</form></div><p id="accessoryMessage" role="status"></p><div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:12px 0"><button id="accessoryRefresh" type="button">Refresh Records</button><select id="accessoryFilter" aria-label="Filter accessory records"><option value="all">All Records</option><option value="issued">Not Returned</option><option value="returned">Returned</option></select></div>
+<div style="overflow-x:auto"><table><thead><tr><th>Employee</th><th>Accessory</th><th>Code</th><th>Qty</th><th>Issued</th><th>Due</th><th>Status</th><th>Action</th></tr></thead><tbody id="accessoryRows"></tbody></table></div></section>
  <section id="samplesTab" class="panel hidden"><h3>Samples</h3><p class="muted">Sample issue, return and approval tracking</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
  <section id="ordersTab" class="panel hidden"><h3>Orders Received</h3><p class="muted">Customer orders, quantities and order status</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
  <section id="aboutTab" class="panel hidden"><h3>About Us</h3><p class="muted">Daily Kharcha information, updates and customer support</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
@@ -302,8 +313,61 @@ async function loadApplications(){
 }
 $('applicationsRows').onclick=async e=>{const approve=e.target.dataset.approve,reject=e.target.dataset.reject;if(!approve&&!reject)return;const id=approve||reject;const actionButton=e.target;actionButton.disabled=true;if(approve){const result=await client.rpc('approve_company_application',{p_company_id:id});if(result.error){msg('adminMessage',friendlyError(result.error),true);await loadApplications();return;}msg('adminMessage','Company approved and owner membership activated.');}else{const upd=await client.from('companies').update({status:'rejected'}).eq('id',id);if(upd.error){msg('adminMessage',friendlyError(upd.error),true);return;}msg('adminMessage','Company application rejected.');}await loadApplications();};
 $('refreshCompanyMembers').onclick=()=>loadCompanyMembers();
+
+const accessoryManagers=['company_owner','company_admin','hr_admin','manager'];
+let accessoryRecords=[],accessoryNames=new Map();
+function accessoryCanManage(){return !!activeCompany&&!!membership&&membership.status==='active'&&accessoryManagers.includes(membership.role);}
+async function loadAccessories(){
+ const rows=$('accessoryRows');rows.innerHTML='';accessoryRecords=[];accessoryNames=new Map();
+ const canManage=accessoryCanManage();$('accessoryEditor').classList.toggle('hidden',!canManage);
+ if(!activeCompany||!membership){msg('accessoryMessage','Select an approved company to view records.');return;}
+ msg('accessoryMessage','Loading accessories...');
+ try{
+  const q=await client.from('employee_accessory_issues').select('id,employee_id,accessory_name,item_code,quantity,issue_date,expected_return_date,returned_at,return_condition').eq('company_id',activeCompany.id).order('issue_date',{ascending:false}).limit(250);
+  if(q.error)throw q.error;
+  accessoryRecords=q.data||[];
+  const m=await client.from('company_memberships').select('user_id,role,status').eq('company_id',activeCompany.id);
+  if(m.error)throw m.error;
+  const active=(m.data||[]).filter(x=>x.status==='active'),ids=[...new Set([...active.map(x=>x.user_id),...accessoryRecords.map(x=>x.employee_id)])];
+  if(ids.length){const p=await client.from('profiles').select('id,full_name').in('id',ids);if(p.error)throw p.error;accessoryNames=new Map((p.data||[]).map(x=>[x.id,x.full_name||'Employee']));}
+  const select=$('accessoryEmployee');select.innerHTML='<option value="">Select employee</option>';
+  if(canManage)active.forEach(x=>{const o=document.createElement('option');o.value=x.user_id;o.textContent=accessoryNames.get(x.user_id)||'Employee';select.appendChild(o);});
+  renderAccessories();msg('accessoryMessage',accessoryRecords.length+' record(s) loaded.');
+ }catch(e){msg('accessoryMessage','Unable to load accessories: '+friendlyError(e),true);}
+}
+function renderAccessories(){
+ const filter=$('accessoryFilter').value;
+ const items=accessoryRecords.filter(x=>filter==='all'||(filter==='returned'?!!x.returned_at:!x.returned_at));
+ $('accessoryRows').innerHTML=items.map(x=>'<tr><td>'+esc(accessoryNames.get(x.employee_id)||'Employee')+'</td><td>'+esc(x.accessory_name)+'</td><td>'+esc(x.item_code||'—')+'</td><td>'+esc(x.quantity)+'</td><td>'+esc(x.issue_date)+'</td><td>'+esc(x.expected_return_date||'—')+'</td><td>'+esc(x.returned_at?'Returned '+x.returned_at:'Issued')+'</td><td>'+(accessoryCanManage()&&!x.returned_at?'<button type="button" data-return-accessory="'+esc(x.id)+'">Record Return</button>':'—')+'</td></tr>').join('')||'<tr><td colspan="8">No records found.</td></tr>';
+}
+$('accessoryIssueDate').value=new Date().toLocaleDateString('en-CA');
+$('accessoryFilter').onchange=renderAccessories;
+$('accessoryRefresh').onclick=()=>loadAccessories();
+$('accessoryIssueForm').onsubmit=async e=>{
+ e.preventDefault();if(!accessoryCanManage()){msg('accessoryMessage','Only company managers can issue accessories.',true);return;}
+ const btn=$('accessoryIssueButton');btn.disabled=true;
+ try{
+  const payload={company_id:activeCompany.id,employee_id:$('accessoryEmployee').value,accessory_name:$('accessoryName').value.trim(),item_code:$('accessoryCode').value.trim()||null,quantity:Number($('accessoryQty').value),issue_date:$('accessoryIssueDate').value,expected_return_date:$('accessoryDueDate').value||null,notes:$('accessoryNotes').value.trim()||null,issued_by:currentUser.id};
+  if(!payload.employee_id||!payload.accessory_name||!payload.issue_date)throw Error('Please complete required fields.');
+  if(payload.expected_return_date&&payload.expected_return_date<payload.issue_date)throw Error('Return due date cannot be before issue date.');
+  const r=await client.from('employee_accessory_issues').insert(payload);if(r.error)throw r.error;
+  $('accessoryIssueForm').reset();$('accessoryQty').value=1;$('accessoryIssueDate').value=new Date().toLocaleDateString('en-CA');await loadAccessories();msg('accessoryMessage','Accessory issued successfully.');
+ }catch(err){msg('accessoryMessage','Issue failed: '+friendlyError(err),true);}finally{btn.disabled=false;}
+};
+$('accessoryRows').onclick=async e=>{
+ const btn=e.target.closest('button[data-return-accessory]');if(!btn||!accessoryCanManage())return;
+ const id=btn.dataset.returnAccessory,record=accessoryRecords.find(x=>x.id===id);if(!record||record.returned_at)return;
+ const condition=prompt('Return condition: Good / Damaged / Lost / Other','Good');if(condition===null)return;
+ const clean=condition.trim();if(!['Good','Damaged','Lost','Other'].includes(clean)){msg('accessoryMessage','Please enter Good, Damaged, Lost or Other.',true);return;}
+ const notes=prompt('Return notes (optional)','');if(notes===null)return;
+ if(!confirm('Confirm return for '+record.accessory_name+'?'))return;
+ btn.disabled=true;
+ try{const date=new Date().toLocaleDateString('en-CA');const r=await client.from('employee_accessory_issues').update({returned_at:date,return_condition:clean,return_notes:notes.trim()||null}).eq('id',id).eq('company_id',activeCompany.id).is('returned_at',null).select('id');if(r.error)throw r.error;if(!r.data?.length)throw Error('This record was already returned or access is restricted.');await loadAccessories();msg('accessoryMessage','Return recorded successfully.');}
+ catch(err){msg('accessoryMessage','Return failed: '+friendlyError(err),true);btn.disabled=false;}
+};
+
 function showTab(tab){activeTab=tab;['company','expenses','attendance','salary','accessories','samples','orders','about','profile','admin'].forEach(t=>{const section=t==='admin'?'adminTabPanel':t+'Tab';const el=$(section);if(el)el.classList.toggle('hidden',t!==tab);});document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));}
-document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{const tab=b.dataset.tab;showTab(tab);if(tab==='company'){Promise.allSettled([loadCompanyMembers(),loadInvitationRequests()]).then(results=>{if(results.some(r=>r.status==='rejected'))showRuntimeNotice('Company data could not load. Try opening this tab again.');});}if(tab==='admin'&&isAdmin){Promise.resolve().then(()=>loadApplications()).catch(()=>showRuntimeNotice('Admin data could not load. Try opening this tab again.'));}});
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{const tab=b.dataset.tab;showTab(tab);if(tab==='accessories'){Promise.resolve().then(()=>loadAccessories()).catch(()=>showRuntimeNotice('Accessories could not load.'));}if(tab==='company'){Promise.allSettled([loadCompanyMembers(),loadInvitationRequests()]).then(results=>{if(results.some(r=>r.status==='rejected'))showRuntimeNotice('Company data could not load. Try opening this tab again.');});}if(tab==='admin'&&isAdmin){Promise.resolve().then(()=>loadApplications()).catch(()=>showRuntimeNotice('Admin data could not load. Try opening this tab again.'));}});
 // Default the draft to the selected month and its calendar-day count.
 function syncSalaryMonthDays(){
  const month=$('salaryMonth').value;
