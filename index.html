@@ -378,6 +378,48 @@ function printSalarySlip(finalApproved=false,printWindow=null){if(salaryLoadedMo
  w.document.close();w.focus();
  const downloadLink=w.document.getElementById('downloadSalarySlip');
  if(downloadLink)downloadLink.href=downloadUrl;
+ 
+ const pdfButton=w.document.createElement('button');
+ pdfButton.type='button';pdfButton.textContent='Download PDF (A4)';
+ pdfButton.style.cssText='margin:8px;padding:12px 22px;font-size:16px;cursor:pointer;background:#173b32;color:white;border:0;border-radius:6px';
+ const actions=w.document.querySelector('.print-actions');
+ if(actions)actions.insertBefore(pdfButton,actions.firstChild);
+ pdfButton.onclick=async()=>{
+  pdfButton.disabled=true;pdfButton.textContent='Preparing PDF...';
+  try{
+   if(!w.jspdf?.jsPDF){
+    await new Promise((resolve,reject)=>{
+     const script=w.document.createElement('script');
+     script.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js';
+     script.onload=resolve;script.onerror=()=>reject(new Error('PDF library could not load. Check your connection.'));
+     w.document.head.appendChild(script);
+    });
+   }
+   const pdf=new w.jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+   const margin=18;let y=20;
+   const add=(label,value,bold=false)=>{
+    if(y>274){pdf.addPage();y=20;}
+    pdf.setFont('helvetica',bold?'bold':'normal');pdf.setFontSize(bold?12:10);
+    pdf.text(String(label).replace(/[^\x20-\x7E]/g,' '),margin,y);
+    if(value!==undefined)pdf.text(String(value).replace(/[^\x20-\x7E]/g,' '),192,y,{align:'right'});
+    y+=8;
+   };
+   add(activeCompany?.company_name||'Daily Kharcha',undefined,true);
+   add('SALARY SLIP - '+val('salaryMonth'),undefined,true);
+   add(finalApproved?'APPROVED - FINAL':'DRAFT - NOT APPROVED');y+=4;
+   [['Employee ID','salaryEmpId'],['Employee Name','salaryEmployee'],['Department','salaryDepartment'],['Date of Joining','salaryDoj'],['UAN','salaryUan'],['ESI','salaryEsi'],['Payable Days','salaryDays']].forEach(([label,id])=>add(label,val(id)||'-'));
+   y+=4;add('EARNINGS',undefined,true);
+   salaryEarningIds.forEach((id,i)=>add(['Basic Pay','HRA','Conveyance','T.A.','Special Allowance','Leave Encashment'][i],moneyValue(id).replace('₹','Rs. ')));
+   add('Total Earnings','Rs. '+earned.toLocaleString('en-IN'),true);
+   y+=4;add('DEDUCTIONS',undefined,true);
+   salaryDeductionIds.forEach((id,i)=>add(['T.D.S.','E.S.I.C.','P.F.','Advances','Others','Welfare Fund'][i],moneyValue(id).replace('₹','Rs. ')));
+   add('Total Deductions','Rs. '+deducted.toLocaleString('en-IN'),true);
+   y+=5;add('NET SALARY','Rs. '+(earned-deducted).toLocaleString('en-IN'),true);
+   if(!finalApproved)add('NOT VALID WITHOUT ADMIN/HR APPROVAL');
+   pdf.save('Salary-Slip-'+val('salaryMonth')+'-'+(finalApproved?'Approved':'Draft')+'.pdf');
+  }catch(e){w.alert('PDF download failed: '+e.message+' Use Download Salary Slip (HTML) instead.');}
+  finally{pdfButton.disabled=false;pdfButton.textContent='Download PDF (A4)';}
+ };
  w.addEventListener('pagehide',()=>URL.revokeObjectURL(downloadUrl),{once:true});}
 $('salaryDraftPrint').onclick=()=>printSalarySlip(false);
 $('salaryFinalPrint').onclick=async()=>{
