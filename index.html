@@ -349,7 +349,7 @@ async function loadAccessories(){
 function renderAccessories(){
  const filter=$('accessoryFilter').value;
  const items=accessoryRecords.filter(x=>filter==='all'||(filter==='returned'?!!x.returned_at:!x.returned_at));
- $('accessoryRows').innerHTML=items.map(x=>'<tr><td>'+esc(accessoryNames.get(x.employee_id)||'Employee')+'</td><td>'+esc(x.accessory_name)+'</td><td>'+esc(x.item_code||'—')+'</td><td>'+esc(x.quantity)+'</td><td>'+esc(x.issue_date)+'</td><td>'+esc(x.expected_return_date||'—')+'</td><td>'+esc(x.returned_at?'Returned '+x.returned_at:'Issued')+'</td><td>'+(accessoryCanManage()&&!x.returned_at?'<button type="button" data-return-accessory="'+esc(x.id)+'">Record Return</button>':'—')+'</td></tr>').join('')||'<tr><td colspan="8">No records found.</td></tr>';
+ $('accessoryRows').innerHTML=items.map(x=>'<tr><td>'+esc(accessoryNames.get(x.employee_id)||'Employee')+'</td><td>'+esc(x.accessory_name)+'</td><td>'+esc(x.item_code||'—')+'</td><td>'+esc(x.quantity)+'</td><td>'+esc(x.issue_date)+'</td><td>'+esc(x.expected_return_date||'—')+'</td><td>'+esc(x.returned_at?'Returned '+x.returned_at:'Issued')+'</td><td>'+(accessoryCanManage()&&!x.returned_at?'<span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="padding:5px 9px;border:1px solid #aab8af;border-radius:7px;background:#edf2ee;font-weight:600">Issued</span><button type="button" data-return-accessory="'+esc(x.id)+'" style="background:#245747;color:white;border:0;border-radius:7px;padding:7px 11px">Returned ✓</button></span>':'<span style="font-weight:600;color:#245747">✓ Returned</span>')+'</td></tr>').join('')||'<tr><td colspan="8">No records found.</td></tr>';
 }
 $('accessoryIssueDate').value=new Date().toLocaleDateString('en-CA');
 $('accessoryFilter').onchange=renderAccessories;
@@ -369,10 +369,8 @@ $('accessoryIssueForm').onsubmit=async e=>{
 $('accessoryRows').onclick=async e=>{
  const btn=e.target.closest('button[data-return-accessory]');if(!btn||!accessoryCanManage())return;
  const id=btn.dataset.returnAccessory,record=accessoryRecords.find(x=>x.id===id);if(!record||record.returned_at)return;
- const condition=prompt('Return condition: Good / Damaged / Lost / Other','Good');if(condition===null)return;
- const clean=condition.trim();if(!['Good','Damaged','Lost','Other'].includes(clean)){msg('accessoryMessage','Please enter Good, Damaged, Lost or Other.',true);return;}
- const notes=prompt('Return notes (optional)','');if(notes===null)return;
- if(!confirm('Confirm return for '+record.accessory_name+'?'))return;
+ if(!confirm('Mark '+record.accessory_name+' ('+(record.item_code||'No code')+') as RETURNED?\n\nClick OK only if the item was received in good condition.'))return;
+ const clean='Good',notes='';
  btn.disabled=true;
  try{const date=new Date().toLocaleDateString('en-CA');const r=await client.from('employee_accessory_issues').update({returned_at:date,return_condition:clean,return_notes:notes.trim()||null}).eq('id',id).eq('company_id',activeCompany.id).is('returned_at',null).select('id');if(r.error)throw r.error;if(!r.data?.length)throw Error('This record was already returned or access is restricted.');await loadAccessories();msg('accessoryMessage','Return recorded successfully.');}
  catch(err){msg('accessoryMessage','Return failed: '+friendlyError(err),true);btn.disabled=false;}
