@@ -179,6 +179,11 @@ async function loadApp(user){
  membership=m.data?.[0]||null;activeCompany=null;
  if(membership){const c=await client.from('companies').select('*').eq('id',membership.company_id).single();if(!c.error)activeCompany=c.data;}
  isAdmin=!!profile.is_platform_admin;
+ const payrollEditor=canApproveSalary();
+ ['salarySave','salaryNextMonth','salaryDraftPrint'].forEach(id=>$(id).classList.toggle('hidden',!payrollEditor));
+ salaryFields.filter(id=>id!=='salaryMonth').forEach(id=>{$(id).readOnly=!payrollEditor;});
+ $('salaryTab').querySelector('h3').textContent=payrollEditor?'Employee Salary Slip':'My Approved Salary Slip';
+ $('salaryTab').querySelector('p.muted').textContent=payrollEditor?'Prepare and approve company payroll.':'View and print your approved monthly salary slip. Only HR/Admin can prepare or change salary.';
  $('salaryApprovalPanel').classList.toggle('hidden',!canApproveSalary());if(canApproveSalary())refreshSalaryApprovals();
  const companyDashboardAllowed=!!activeCompany&&activeCompany.status==='active'&&membership?.status==='active'&&['company_owner','company_admin','hr_admin'].includes(membership.role);
  $('companyTabButton').classList.toggle('hidden',!companyDashboardAllowed);
@@ -390,7 +395,7 @@ function salarySetStatus(s){salaryLoadedStatus=s;$('salaryStatusLabel').textCont
 $('salaryMonth').addEventListener('change',()=>{salaryLoadedMonth=null;salarySetStatus('draft');$('salarySaveStatus').textContent='Month changed. Click Load Saved Draft to view the selected month before printing.';});
 function salaryDraftData(){return Object.fromEntries(salaryFields.map(id=>[id,$(id).value]));}
 
-$('salaryNextMonth').onclick=async()=>{
+$('salaryNextMonth').onclick=async()=>{if(!canApproveSalary())return;
  if(!currentUser||!activeCompany?.id){alert('Please sign in first.');return;}
  const sourceMonth=$('salaryMonth').value;
  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(sourceMonth)){alert('Select the source salary month first.');return;}
@@ -413,7 +418,7 @@ $('salaryNextMonth').onclick=async()=>{
  if(canApproveSalary())refreshSalaryApprovals();
 };
 
-$('salarySave').onclick=async()=>{
+$('salarySave').onclick=async()=>{if(!canApproveSalary())return;
  if(!currentUser||!activeCompany?.id){alert('Please sign in and select an approved company first.');return;}
  const month=$('salaryMonth').value;if(!/^\d{4}-\d{2}$/.test(month)){alert('Select salary month first.');return;}
  const amounts=[...salaryEarningIds,...salaryDeductionIds].map(id=>Number($(id).value||0));if(amounts.some(n=>!Number.isFinite(n)||n<0)){alert('Salary amounts must be valid non-negative numbers.');return;} 
@@ -437,7 +442,7 @@ const salaryEarningIds=['salaryBasic','salaryHra','salaryConveyance','salaryTa',
 const salaryDeductionIds=['salaryTds','salaryEsic','salaryPf','salaryAdvance','salaryOthers','salaryWelfare'];
 function updateSalaryPreview(){const sum=ids=>ids.reduce((total,id)=>total+(Number($(id).value)||0),0);const earnings=sum(salaryEarningIds),deductions=sum(salaryDeductionIds),net=earnings-deductions;const fmt=n=>n.toLocaleString('en-IN',{style:'currency',currency:'INR'});$('salaryEarningsPreview').textContent=fmt(earnings);$('salaryDeductionsPreview').textContent=fmt(deductions);$('salaryNetPreview').textContent=fmt(net);$('salaryNetPreview').style.color=net<0?'#a53b32':'';}
 [...salaryEarningIds,...salaryDeductionIds].forEach(id=>$(id).addEventListener('input',updateSalaryPreview));
-function printSalarySlip(finalApproved=false,printWindow=null){if(salaryLoadedMonth!==$('salaryMonth').value){alert('Please load the selected salary month before printing.');return;}const val=id=>$(id).value.trim(),moneyValue=id=>(Number($(id).value)||0).toLocaleString('en-IN',{style:'currency',currency:'INR'}),safe=x=>esc(String(x||'—'));const rows=(ids,labels)=>ids.map((id,i)=>'<tr><td>'+safe(labels[i])+'</td><td style="text-align:right">'+moneyValue(id)+'</td></tr>').join('');const earned=salaryEarningIds.reduce((n,id)=>n+(Number($(id).value)||0),0),deducted=salaryDeductionIds.reduce((n,id)=>n+(Number($(id).value)||0),0);const fmt=n=>n.toLocaleString('en-IN',{style:'currency',currency:'INR'});const doc='<!doctype html><html><head><meta charset="utf-8"><title>'+ (finalApproved?'Final':'Draft') +' Salary Slip</title><style>body{font:14px Arial;margin:28px;color:#222}h2{text-align:center}table{width:100%;border-collapse:collapse;margin:14px 0}td,th{border:1px solid #aaa;padding:8px;text-align:left}.watermark{color:#a33;text-align:center;font-weight:bold;letter-spacing:2px}h3{margin-bottom:4px}@media print{body{margin:12mm}}</style></head><body><div class="watermark">'+(finalApproved?'APPROVED — FINAL':'DRAFT — NOT APPROVED')+'</div><h2>'+safe(activeCompany?.company_name||'Daily Kharcha')+'</h2><h3>Salary Slip — '+safe(val('salaryMonth'))+'</h3><table><tr><td>Employee ID</td><td>'+safe(val('salaryEmpId'))+'</td><td>Employee Name</td><td>'+safe(val('salaryEmployee'))+'</td></tr><tr><td>Department</td><td>'+safe(val('salaryDepartment'))+'</td><td>Date of Joining</td><td>'+safe(val('salaryDoj'))+'</td></tr><tr><td>UAN</td><td>'+safe(val('salaryUan'))+'</td><td>ESI</td><td>'+safe(val('salaryEsi'))+'</td></tr><tr><td>Payable Days</td><td>'+safe(val('salaryDays'))+'</td><td>Status</td><td>'+(finalApproved?'APPROVED':'DRAFT')+'</td></tr></table><h3>Earnings</h3><table>'+rows(salaryEarningIds,['Basic Pay','HRA','Conveyance','T.A.','Special Allowance','Leave Encashment'])+'<tr><th>Total Earnings</th><th>'+fmt(earned)+'</th></tr></table><h3>Deductions</h3><table>'+rows(salaryDeductionIds,['T.D.S.','E.S.I.C.','P.F.','Advances','Others','Welfare Fund'])+'<tr><th>Total Deductions</th><th>'+fmt(deducted)+'</th></tr></table><h2>Net Salary: '+fmt(earned-deducted)+'</h2>'+(finalApproved?'':'<p class="watermark">NOT VALID WITHOUT ADMIN/HR APPROVAL</p>')+'</body></html>';const w=printWindow||window.open('','_blank');if(!w){alert('Please allow pop-ups to print the salary slip.');return;}const cleanDoc=doc;
+function printSalarySlip(finalApproved=false,printWindow=null){if(salaryLoadedMonth!==$('salaryMonth').value){alert('Please load the selected salary month before printing.');return;}const val=id=>$(id).value.trim(),moneyValue=id=>(Number($(id).value)||0).toLocaleString('en-IN',{style:'currency',currency:'INR'}),safe=x=>esc(String(x||'—'));const rows=(ids,labels)=>ids.map((id,i)=>'<tr><td>'+safe(labels[i])+'</td><td style="text-align:right">'+moneyValue(id)+'</td></tr>').join('');const earned=salaryEarningIds.reduce((n,id)=>n+(Number($(id).value)||0),0),deducted=salaryDeductionIds.reduce((n,id)=>n+(Number($(id).value)||0),0);const fmt=n=>n.toLocaleString('en-IN',{style:'currency',currency:'INR'});const doc='<!doctype html><html><head><meta charset="utf-8"><title>'+ (finalApproved?'Final':'Draft') +' Salary Slip</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font:12px Arial;margin:0;color:#222}h2{text-align:center}table{width:100%;border-collapse:collapse;margin:10px 0;table-layout:fixed}td,th{border:1px solid #aaa;padding:6px;text-align:left;overflow-wrap:anywhere}tr{break-inside:avoid}.watermark{color:#a33;text-align:center;font-weight:bold;letter-spacing:2px}h3{margin-bottom:4px}@media print{body{margin:0}}</style></head><body><div class="watermark">'+(finalApproved?'APPROVED — FINAL':'DRAFT — NOT APPROVED')+'</div><h2>'+safe(activeCompany?.company_name||'Daily Kharcha')+'</h2><h3>Salary Slip — '+safe(val('salaryMonth'))+'</h3><table><tr><td>Employee ID</td><td>'+safe(val('salaryEmpId'))+'</td><td>Employee Name</td><td>'+safe(val('salaryEmployee'))+'</td></tr><tr><td>Department</td><td>'+safe(val('salaryDepartment'))+'</td><td>Date of Joining</td><td>'+safe(val('salaryDoj'))+'</td></tr><tr><td>UAN</td><td>'+safe(val('salaryUan'))+'</td><td>ESI</td><td>'+safe(val('salaryEsi'))+'</td></tr><tr><td>Payable Days</td><td>'+safe(val('salaryDays'))+'</td><td>Status</td><td>'+(finalApproved?'APPROVED':'DRAFT')+'</td></tr></table><h3>Earnings</h3><table>'+rows(salaryEarningIds,['Basic Pay','HRA','Conveyance','T.A.','Special Allowance','Leave Encashment'])+'<tr><th>Total Earnings</th><th>'+fmt(earned)+'</th></tr></table><h3>Deductions</h3><table>'+rows(salaryDeductionIds,['T.D.S.','E.S.I.C.','P.F.','Advances','Others','Welfare Fund'])+'<tr><th>Total Deductions</th><th>'+fmt(deducted)+'</th></tr></table><h2>Net Salary: '+fmt(earned-deducted)+'</h2>'+(finalApproved?'':'<p class="watermark">NOT VALID WITHOUT ADMIN/HR APPROVAL</p>')+'</body></html>';const w=printWindow||window.open('','_blank');if(!w){alert('Please allow pop-ups to print the salary slip.');return;}const cleanDoc=doc;
  const filename='Salary-Slip-'+val('salaryMonth')+'-'+(finalApproved?'Approved':'Draft')+'.html';
  const printable=cleanDoc.replace('@media print{body{margin:12mm}}','@media print{body{margin:12mm}}');
  const downloadUrl=URL.createObjectURL(new Blob([printable],{type:'text/html;charset=utf-8'}));
@@ -448,59 +453,11 @@ function printSalarySlip(finalApproved=false,printWindow=null){if(salaryLoadedMo
  if(downloadLink)downloadLink.href=downloadUrl;
  
  const pdfButton=w.document.createElement('button');
- pdfButton.type='button';pdfButton.textContent='Download PDF (A4)';
+ pdfButton.type='button';pdfButton.textContent='Save as PDF (A4)';
  pdfButton.style.cssText='margin:8px;padding:12px 22px;font-size:16px;cursor:pointer;background:#173b32;color:white;border:0;border-radius:6px';
  const actions=w.document.querySelector('.print-actions');
  if(actions)actions.insertBefore(pdfButton,actions.firstChild);
- pdfButton.onclick=()=>{
-  pdfButton.disabled=true;pdfButton.textContent='Preparing PDF...';
-  try{
-   // Standalone A4 PDF writer: no CDN, pop-up print dialog or third-party library.
-   const lines=[];
-   const add=(label,value,bold=false)=>lines.push({label:String(label),value:value===undefined?'':String(value),bold});
-   add(activeCompany?.company_name||'Daily Kharcha',undefined,true);
-   add('SALARY SLIP - '+val('salaryMonth'),undefined,true);
-   add(finalApproved?'APPROVED - FINAL':'DRAFT - NOT APPROVED');add('');
-   [['Employee ID','salaryEmpId'],['Employee Name','salaryEmployee'],['Department','salaryDepartment'],['Date of Joining','salaryDoj'],['UAN','salaryUan'],['ESI','salaryEsi'],['Payable Days','salaryDays']].forEach(([label,id])=>add(label,val(id)||'-'));
-   add('');add('EARNINGS',undefined,true);
-   salaryEarningIds.forEach((id,i)=>add(['Basic Pay','HRA','Conveyance','T.A.','Special Allowance','Leave Encashment'][i],(Number($(id).value)||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})));
-   add('Total Earnings','Rs. '+earned.toLocaleString('en-IN',{minimumFractionDigits:2}),true);
-   add('');add('DEDUCTIONS',undefined,true);
-   salaryDeductionIds.forEach((id,i)=>add(['T.D.S.','E.S.I.C.','P.F.','Advances','Others','Welfare Fund'][i],(Number($(id).value)||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})));
-   add('Total Deductions','Rs. '+deducted.toLocaleString('en-IN',{minimumFractionDigits:2}),true);
-   add('');add('NET SALARY','Rs. '+(earned-deducted).toLocaleString('en-IN',{minimumFractionDigits:2}),true);
-   if(!finalApproved)add('NOT VALID WITHOUT ADMIN/HR APPROVAL');
-   const pdfText=x=>String(x).replace(/[^\x20-\x7E]/g,'?').replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');
-   let y=790,stream='';
-   for(const line of lines){
-    if(y<35)throw new Error('Salary slip is too long for a single A4 page.');
-    const font=line.bold?'F2':'F1',size=line.bold?12:10;
-    stream+='BT /'+font+' '+size+' Tf 50 '+y+' Td ('+pdfText(line.label)+') Tj ET\n';
-    if(line.value)stream+='BT /'+font+' '+size+' Tf 360 '+y+' Td ('+pdfText(line.value)+') Tj ET\n';
-    y-=line.bold?23:19;
-   }
-   const objects=[
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>',
-    '<< /Length '+stream.length+' >>\nstream\n'+stream+'endstream'
-   ];
-   let output='%PDF-1.4\n',offsets=[0];
-   for(let i=0;i<objects.length;i++){offsets.push(output.length);output+=(i+1)+' 0 obj\n'+objects[i]+'\nendobj\n';}
-   const xref=output.length;
-   output+='xref\n0 '+(objects.length+1)+'\n0000000000 65535 f \n';
-   for(let i=1;i<offsets.length;i++)output+=String(offsets[i]).padStart(10,'0')+' 00000 n \n';
-   output+='trailer\n<< /Size '+(objects.length+1)+' /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
-   const bytes=new Uint8Array(output.length);for(let i=0;i<output.length;i++)bytes[i]=output.charCodeAt(i);
-   const url=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));
-   const link=w.document.createElement('a');link.href=url;link.download='Salary-Slip-'+val('salaryMonth')+'-'+(finalApproved?'Approved':'Draft')+'.pdf';
-   w.document.body.appendChild(link);link.click();link.remove();
-   setTimeout(()=>URL.revokeObjectURL(url),60000);
-  }catch(e){w.alert('PDF download failed: '+e.message+' Please use Download Salary Slip (HTML).');}
-  finally{pdfButton.disabled=false;pdfButton.textContent='Download PDF (A4)';}
- };
+ pdfButton.onclick=()=>{w.focus();w.print();};
  w.addEventListener('pagehide',()=>URL.revokeObjectURL(downloadUrl),{once:true});}
 $('salaryDraftPrint').onclick=()=>printSalarySlip(false);
 $('salaryFinalPrint').onclick=async()=>{
