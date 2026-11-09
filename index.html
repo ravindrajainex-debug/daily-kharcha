@@ -471,6 +471,10 @@ $('bulkSalaryGenerate').onclick=async()=>{
  if(!canApproveSalary()){alert('Only HR/Admin can generate bulk payroll.');return;}
  const source=$('bulkSalarySource').value;
  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(source)){alert('Select a valid source month.');return;}
+ const {data:sourceSlips,error:sourceError}=await client.from('salary_slips').select('details').eq('company_id',activeCompany.id).eq('salary_month',source).eq('status','approved');
+ if(sourceError){alert('Unable to verify source salaries: '+sourceError.message);return;}
+ const earningsKeys=['salaryBasic','salaryHra','salaryConveyance','salaryTa','salarySpecial','salaryLeave'];
+ if((sourceSlips||[]).some(x=>earningsKeys.reduce((n,k)=>n+(Number(x.details?.[k])||0),0)<=0)){alert('Generation blocked: at least one approved source salary has zero gross pay. Correct the source payroll before generating the next month.');return;}
  const [y,m]=source.split('-').map(Number),target=new Date(Date.UTC(y,m,1)).toISOString().slice(0,7);
  if(!confirm('Generate new DRAFT salary slips for '+target+' from approved '+source+' slips? Existing slips will remain unchanged. Review all amounts and attendance before approving.'))return;
  const btn=$('bulkSalaryGenerate');btn.disabled=true;
@@ -495,13 +499,15 @@ $('bulkSalaryPreview').onclick=async()=>{
  ]);
  if(prior.error||current.error||members.error){$('bulkSalaryMessage').textContent='Preview failed: '+(prior.error||current.error||members.error).message;return;}
  const activeIds=new Set((members.data||[]).map(x=>x.user_id)), existing=new Map((current.data||[]).map(x=>[x.user_id,x.status]));
- const eligible=(prior.data||[]).filter(x=>activeIds.has(x.user_id));
+ const salaryPayKeys=['salaryBasic','salaryHra','salaryConveyance','salaryTa','salarySpecial','salaryLeave'];const eligible=(prior.data||[]).filter(x=>activeIds.has(x.user_id));const grossFor=x=>salaryPayKeys.reduce((n,k)=>n+(Number(x.details?.[k])||0),0);const invalid=eligible.filter(x=>grossFor(x)<=0);
  $('bulkSalaryMessage').textContent=eligible.length+' active employee(s) with approved '+source+' slips. Target: '+target+'. Preview only — no salary records changed.';
  if(!eligible.length){output.textContent='No eligible approved salary records for this month.';return;}
+ $('bulkSalaryGenerate').disabled=invalid.length>0;
+ if(invalid.length)$('bulkSalaryMessage').textContent+=' Generation blocked: '+invalid.length+' source salary slip(s) have zero gross salary.';
  for(const item of eligible){
  const line=document.createElement('div');line.style.cssText='padding:10px;border-bottom:1px solid #ddd';
  const name=document.createElement('strong');name.textContent=item.details?.salaryEmployee||'Employee';
- const state=document.createElement('span');state.textContent=' — '+(existing.has(item.user_id)?'Already exists ('+existing.get(item.user_id)+')':'Ready for new draft');
+ const state=document.createElement('span');state.textContent=' — '+(existing.has(item.user_id)?'Already exists ('+existing.get(item.user_id)+')':grossFor(item)<=0?'Blocked — source salary is ₹0':'Ready for new draft');
  line.append(name,state);output.appendChild(line);
  }
 };
