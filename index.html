@@ -107,7 +107,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="row" style="margin-top:12px"><button class="btn" id="salarySave" type="button">Save Salary Draft</button><span id="salarySaveStatus" class="muted" role="status"></span><button class="btn light" id="salaryLoad" type="button">Load Saved Draft</button><button class="btn light" id="salaryNextMonth" type="button">Prepare Next Month Draft</button><button class="btn light" id="salaryDraftPrint" type="button">Print Draft Salary Slip</button><button class="btn light hidden" id="salaryFinalPrint" type="button">Print Final Approved Slip</button><span class="muted" id="salaryStatusLabel">Draft only — not approved or final</span></div><p class="note">Drafts are stored securely for your active company and account. Final salary slips require Admin/HR approval.</p>
 <div id="salaryApprovalPanel" class="hidden"><h4>Bulk Monthly Salary Preparation</h4><p class="note">Preview employees with approved slips in the source month. No salary is created or changed during preview.</p><div class="row"><label for="bulkSalarySource">Approved source month</label><input id="bulkSalarySource" type="month"><button class="btn light" id="bulkSalaryPreview" type="button">Preview Bulk Salary</button><button class="btn" id="bulkSalaryGenerate" type="button">Generate Bulk Salary Drafts</button></div><p id="bulkSalaryMessage" role="status"></p><div id="bulkSalaryList"></div><h4>HR / Admin Salary Approvals</h4><button class="btn light" id="salaryRefreshApprovals" type="button">Refresh Pending Drafts</button><p id="salaryApprovalMessage"></p><div id="salaryApprovalList"></div></div>
 </section>
- <section id="accessoriesTab" class="panel hidden"><h3>Employee Accessories Issue / Return</h3><p class="muted">Track items issued to employees and record returns. No inventory management.</p>
+ <section id="accessoriesTab" class="panel hidden"><h3>Employee Accessories Issue / Return</h3><div id="companyDashboardShortcut" class="hidden" style="margin:10px 0 18px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#f4f6f3"><strong>Employee Invitations</strong><p class="muted" style="margin:4px 0 10px">Open your Company Dashboard to manage employee invitations.</p><button id="openCompanyFromAccessories" type="button">Open Company Dashboard</button></div><p class="muted">Track items issued to employees and record returns. No inventory management.</p>
 <div id="accessoryEditor"><form id="accessoryIssueForm" class="grid">
 <div class="field"><label>Employee *</label><select id="accessoryEmployee" required><option value="">Select employee</option></select></div>
 <div class="field"><label>Accessory Name *</label><input id="accessoryName" required maxlength="120" placeholder="Laptop, ID card, charger"></div>
@@ -180,7 +180,9 @@ async function loadApp(user){
  if(membership){const c=await client.from('companies').select('*').eq('id',membership.company_id).single();if(!c.error)activeCompany=c.data;}
  isAdmin=!!profile.is_platform_admin;
  $('salaryApprovalPanel').classList.toggle('hidden',!canApproveSalary());if(canApproveSalary())refreshSalaryApprovals();
- $('companyTabButton').classList.toggle('hidden',!activeCompany||!['company_owner','company_admin','hr_admin'].includes(membership?.role));
+ const companyDashboardAllowed=!!activeCompany&&activeCompany.status==='active'&&membership?.status==='active'&&['company_owner','company_admin','hr_admin'].includes(membership.role);
+ $('companyTabButton').classList.toggle('hidden',!companyDashboardAllowed);
+ $('companyDashboardShortcut').classList.toggle('hidden',!companyDashboardAllowed);
  $('companyDashName').textContent=activeCompany?.company_name||'—';$('companyDashStatus').textContent=activeCompany?.status||'—';$('companyDashRole').textContent=membership?.role||'—';
  // Load secondary company data after the primary screen is visible.
  $('employeeInvitePanel').classList.toggle('hidden',!membership||!['company_owner','company_admin'].includes(membership.role));
@@ -343,6 +345,7 @@ function renderAccessories(){
 $('accessoryIssueDate').value=new Date().toLocaleDateString('en-CA');
 $('accessoryFilter').onchange=renderAccessories;
 $('accessoryRefresh').onclick=()=>loadAccessories();
+$('openCompanyFromAccessories').onclick=()=>{showTab('company');Promise.allSettled([loadCompanyMembers(),loadInvitationRequests()]).then(results=>{if(results.some(x=>x.status==='rejected'))showRuntimeNotice('Company data could not load. Please retry.');});};
 $('accessoryIssueForm').onsubmit=async e=>{
  e.preventDefault();if(!accessoryCanManage()){msg('accessoryMessage','Only company managers can issue accessories.',true);return;}
  const btn=$('accessoryIssueButton');btn.disabled=true;
