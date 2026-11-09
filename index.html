@@ -179,9 +179,10 @@ async function loadApp(user){
  if(!activeCompany&&!isAdmin){notice.innerHTML='<strong>Company approval pending.</strong><br>Your signup has been received. The Daily Kharcha Owner/Admin must approve your company before expense and attendance features become available. You can log in again later to check status.';}
  showTab('expenses');
  if(activeCompany||isAdmin){
-  const results=await Promise.allSettled([loadExpenses(),loadAttendance()]);
-  const failures=results.filter(x=>x.status==='rejected');
-  if(failures.length)showRuntimeNotice('Some data could not load. Please retry or check your connection.');
+  // Do not block login or navigation while expense and attendance requests complete.
+  Promise.allSettled([loadExpenses(),loadAttendance()]).then(results=>{
+   if(results.some(x=>x.status==='rejected'))showRuntimeNotice('Some data could not load. Please retry or check your connection.');
+  });
  // Secondary management data loads only when its tab is opened.
  }else{expenses=[];attendance=[];renderExpenses();renderAttendance();}
 
