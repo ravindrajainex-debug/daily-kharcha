@@ -534,6 +534,7 @@ async function refreshIncentiveRates(){
  $('employeeIncentiveValue').textContent=fixed!=null?'Configured manual monthly incentive: ₹'+Number(fixed).toLocaleString('en-IN',{minimumFractionDigits:2})+' (subject to approval)':'Your configured incentive rate: '+rate+'% (subject to approval)';
  }
 }
+}
 $('incentiveVisibilityEmployee').addEventListener('change',()=>{$('incentiveVisibilityAllowed').checked=incentiveVisible.get($('incentiveVisibilityEmployee').value)===true;});
 $('incentiveVisibilitySave').onclick=async()=>{
  if(!incentiveCanToggle())return;
