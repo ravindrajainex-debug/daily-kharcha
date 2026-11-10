@@ -452,11 +452,16 @@ function populateOrderReportEmployees(){
  }
  if([...sel.options].some(x=>x.value===previous))sel.value=previous;
 }
+const orderBasicAmount=x=>{
+ const qty=Number(x.quantity)||0,unit=Number(x.unit_price)||0,rate=Number(x.gst_rate)||0;
+ const gross=qty*unit;
+ return Math.round(((x.gst_mode==='inclusive'?gross/(1+rate/100):gross)+Number.EPSILON)*100)/100;
+};
 const orderReportColumns=[
  ['Employee',x=>orderNames.get(x.employee_id)||'Employee'],
  ['Client',x=>x.client_name],['Product',x=>x.product_name],['Code',x=>x.product_code],
  ['Qty',x=>x.quantity],['Per Piece (₹)',x=>x.unit_price],['GST Rate',x=>x.gst_rate==null?'—':x.gst_rate+'%'],['GST Type',x=>x.gst_mode],
- ['Total (₹)',x=>x.order_value],['PO Number',x=>x.po_number],['Order Date',x=>x.order_date],
+ ['Basic Amount (Excl. GST ₹)',x=>orderBasicAmount(x)],['Total (Incl. GST ₹)',x=>x.order_value],['PO Number',x=>x.po_number],['Order Date',x=>x.order_date],
  ['Expected Delivery',x=>x.expected_delivery],['Approval',x=>x.approval_status],
  ['Delivery Status',x=>x.delivery_status],['Delivery Updated',x=>x.delivery_updated_at?new Date(x.delivery_updated_at).toLocaleString('en-IN'):'—'],
  ['Delivery Remarks',x=>x.delivery_remarks],['Rejection Reason',x=>x.rejection_reason]
@@ -471,7 +476,7 @@ async function getOrderReportRecords(){
  }return records;
 }
 function orderReportSummary(records){
- return {qty:records.reduce((a,x)=>a+(Number(x.quantity)||0),0),value:records.reduce((a,x)=>a+(Number(x.order_value)||0),0)};
+ return {qty:records.reduce((a,x)=>a+(Number(x.quantity)||0),0),basic:records.reduce((a,x)=>a+orderBasicAmount(x),0),value:records.reduce((a,x)=>a+(Number(x.order_value)||0),0)};
 }
 async function exportOrdersReport(format){
  const btn=$(format==='csv'?'orderReportCsv':'orderReportHtml');btn.disabled=true;
@@ -482,13 +487,13 @@ async function exportOrdersReport(format){
  const date=new Date().toISOString().slice(0,10);
  if(format==='csv'){
  const safe=v=>{let x=String(v??'');if(/^[=+@\-\t\r]/.test(x))x="'"+x;return '"'+x.replace(/"/g,'""')+'"';};
- const lines=[['Company',company],['Employee',emp],['Report Date',date],['Total Orders',records.length],['Total Qty',summary.qty],['Total Order Value',summary.value],[],orderReportColumns.map(x=>x[0]),...records.map(x=>orderReportColumns.map(c=>c[1](x)))];
+ const lines=[['Company',company],['Employee',emp],['Report Date',date],['Total Orders',records.length],['Total Qty',summary.qty],['Total Basic Amount (Excl. GST)',summary.basic.toFixed(2)],['Total Order Value (Incl. GST)',summary.value.toFixed(2)],[],orderReportColumns.map(x=>x[0]),...records.map(x=>orderReportColumns.map(c=>c[1](x)))];
  downloadSampleFile('\uFEFF'+lines.map(row=>row.map(safe).join(',')).join('\r\n'),'text/csv;charset=utf-8','Daily-Kharcha-Orders-'+date+'.csv');
  }else{
  const escCell=sampleReportCell;
  const heads=orderReportColumns.map(c=>'<th>'+escCell(c[0])+'</th>').join('');
  const rows=records.map(x=>'<tr>'+orderReportColumns.map(c=>'<td>'+escCell(c[1](x))+'</td>').join('')+'</tr>').join('');
- const html='<!doctype html><html><head><meta charset="utf-8"><title>Orders Report</title><style>body{font:12px Arial,sans-serif;padding:16px;color:#222}table{border-collapse:collapse;width:100%;table-layout:fixed}th,td{border:1px solid #aaa;padding:3px;text-align:left;overflow-wrap:anywhere;word-break:break-word}th{background:#eee}@page{size:297mm 210mm;margin:8mm}@media print{.toolbar{display:none}body{margin:0;padding:0}table{font-size:8px}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}}</style></head><body><h2>Daily Kharcha - Employee-wise Orders Report</h2><p><strong>Company:</strong> '+escCell(company)+' | <strong>Employee:</strong> '+escCell(emp)+' | <strong>Report Date:</strong> '+date+'</p><p><strong>Total Orders:</strong> '+records.length+' | <strong>Total Quantity:</strong> '+summary.qty+' | <strong>Total Order Value:</strong> ₹'+summary.value.toLocaleString('en-IN',{minimumFractionDigits:2})+'</p><div class="toolbar"><button onclick="window.print()">Print / Save as PDF (A4 Landscape)</button></div><table><thead><tr>'+heads+'</tr></thead><tbody>'+rows+'</tbody></table></body></html>';
+ const html='<!doctype html><html><head><meta charset="utf-8"><title>Orders Report</title><style>body{font:12px Arial,sans-serif;padding:16px;color:#222}table{border-collapse:collapse;width:100%;table-layout:fixed}th,td{border:1px solid #aaa;padding:3px;text-align:left;overflow-wrap:anywhere;word-break:break-word}th{background:#eee}@page{size:297mm 210mm;margin:8mm}@media print{.toolbar{display:none}body{margin:0;padding:0}table{font-size:8px}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}}</style></head><body><h2>Daily Kharcha - Employee-wise Orders Report</h2><p><strong>Company:</strong> '+escCell(company)+' | <strong>Employee:</strong> '+escCell(emp)+' | <strong>Report Date:</strong> '+date+'</p><p><strong>Total Orders:</strong> '+records.length+' | <strong>Total Quantity:</strong> '+summary.qty+' | <strong>Total Basic Amount (Excl. GST):</strong> ₹'+summary.basic.toLocaleString('en-IN',{minimumFractionDigits:2})+' | <strong>Total Order Value (Incl. GST):</strong> ₹'+summary.value.toLocaleString('en-IN',{minimumFractionDigits:2})+'</p><div class="toolbar"><button onclick="window.print()">Print / Save as PDF (A4 Landscape)</button></div><table><thead><tr>'+heads+'</tr></thead><tbody>'+rows+'</tbody></table></body></html>';
  downloadSampleFile(html,'text/html;charset=utf-8','Daily-Kharcha-Orders-'+date+'.html');
  }
  msg('orderReportMessage','Report downloaded. Open the file to view or print.');
