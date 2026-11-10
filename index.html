@@ -438,9 +438,12 @@ async function loadOrders(){
  if(!activeCompany||!membership){msg('ordersMessage','Approved company required.',true);return;}
  msg('ordersMessage','Loading orders...');
  try{
-  const q=await client.from('company_orders_received').select('id,employee_id,client_name,product_name,product_code,quantity,order_value,po_number,order_date,expected_delivery,order_status,po_file_path,approval_status,rejection_reason,unit_price,gst_mode,gst_rate,delivery_status,delivery_remarks,delivery_updated_at').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(250);
-  if(q.error)throw q.error;orderRecords=q.data||[];
-  const p=await client.rpc('sample_company_employee_names',{p_company_id:activeCompany.id});if(p.error)throw p.error;
+  // Orders and employee-name lookup are independent; fetch in parallel to reduce tab wait.
+  const [q,p]=await Promise.all([
+   client.from('company_orders_received').select('id,employee_id,client_name,product_name,product_code,quantity,order_value,po_number,order_date,expected_delivery,order_status,po_file_path,approval_status,rejection_reason,unit_price,gst_mode,gst_rate,delivery_status,delivery_remarks,delivery_updated_at').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(250),
+   client.rpc('sample_company_employee_names',{p_company_id:activeCompany.id})
+  ]);
+  if(q.error)throw q.error;if(p.error)throw p.error;orderRecords=q.data||[];
   orderNames=new Map((p.data||[]).map(x=>[x.id,x.full_name]));
   const sel=$('orderEmployee');sel.innerHTML='<option value="">Select Employee</option>';
   {const o=document.createElement('option');o.value=currentUser.id;o.textContent=orderNames.get(currentUser.id)||'My Order';sel.appendChild(o);sel.value=currentUser.id;}
