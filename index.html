@@ -410,7 +410,7 @@ async function loadSamples(){
    (m.data||[]).filter(x=>x.status==='active').forEach(x=>ids.add(x.user_id));
   }
   if(ids.size){
-   const p=await client.from('profiles').select('id,full_name').in('id',[...ids]);
+   const p=await client.rpc('sample_company_employee_names',{p_company_id:activeCompany.id});
    if(p.error)throw p.error;
    sampleNames=new Map((p.data||[]).map(x=>[x.id,x.full_name||'Employee']));
   }
@@ -429,7 +429,7 @@ function renderSamples(){
   let actions='';
   if(canManage&&x.approval_status==='pending')actions+='<button type="button" class="btn light" data-sample-action="approved" data-id="'+esc(x.id)+'">Approve</button> <button type="button" class="btn danger" data-sample-action="rejected" data-id="'+esc(x.id)+'">Reject</button> ';
   if(canManage&&!x.returned_at&&x.approval_status==='approved')actions+='<button type="button" class="btn light" data-sample-action="return" data-id="'+esc(x.id)+'">Returned ✓</button>';
-  return '<tr><td>'+esc(sampleNames.get(x.employee_id)||'Employee')+'</td><td>'+esc(x.sample_name)+'</td><td>'+(x.image_path?'<button type="button" class="btn light" data-sample-image="'+esc(x.id)+'">View Photo</button>':'—')+'</td><td>'+esc(x.submitted_company_name||'—')+'</td><td>'+esc(x.submitted_department||'—')+'</td><td>'+esc(x.submitted_person||'—')+'</td><td>'+esc(x.item_code||'—')+'</td><td>'+esc(x.quantity)+'</td><td>'+esc(x.issue_date)+'</td><td>'+esc(x.expected_return_date||'—')+'</td><td>'+esc(x.approval_status)+'</td><td>'+esc(x.returned_at||'Not Returned')+'</td><td class="actions">'+actions+'</td></tr>';
+  return '<tr><td>'+esc(sampleNames.get(x.employee_id)||'Employee')+'</td><td>'+esc(x.sample_name)+'</td><td>'+(x.image_path?'<button type="button" class="btn light" data-sample-image="'+esc(x.id)+'">View Photo</button>':'—')+'</td><td>'+esc(x.submitted_company_name||'—')+'</td><td>'+esc(x.submitted_department||'—')+'</td><td>'+esc(x.submitted_person||'—')+'</td><td>'+esc(x.item_code||'—')+'</td><td>'+esc(x.quantity)+'</td><td>'+esc(x.issue_date)+'</td><td>'+esc(x.expected_return_date||'—')+'</td><td>'+esc(x.approval_status)+'</td><td>'+esc(x.returned_at?'Returned ✓ ('+x.returned_at+')':'Not Returned')+'</td><td class="actions">'+actions+'</td></tr>';
  }).join(''):'<tr><td colspan="13" class="empty">No sample records found.</td></tr>';
 }
 $('sampleFilter').onchange=renderSamples;
