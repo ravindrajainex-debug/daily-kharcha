@@ -736,23 +736,16 @@ async function loadSamples(){
  if(!activeCompany||!membership){msg('sampleMessage','An approved company is required.');return;}
  msg('sampleMessage','Loading samples...');
  try{
-  const q=await client.from('employee_sample_issues').select('id,employee_id,sample_name,item_code,quantity,issue_date,expected_return_date,returned_at,approval_status,notes,submitted_department,submitted_person,submitted_company_name,image_path,return_requested_at').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(250);
-  if(q.error)throw q.error;
+  const [q,m,p]=await Promise.all([
+   client.from('employee_sample_issues').select('id,employee_id,sample_name,item_code,quantity,issue_date,expected_return_date,returned_at,approval_status,notes,submitted_department,submitted_person,submitted_company_name,image_path,return_requested_at').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(250),
+   canManage?client.from('company_memberships').select('user_id,status').eq('company_id',activeCompany.id):Promise.resolve({data:[],error:null}),
+   client.rpc('sample_company_employee_names',{p_company_id:activeCompany.id})
+  ]);
+  if(q.error||m.error||p.error)throw(q.error||m.error||p.error);
   sampleRecords=q.data||[];
-  const ids=new Set(sampleRecords.map(x=>x.employee_id));
   const select=$('sampleEmployee');select.innerHTML='<option value="">Select employee</option>';
-  let activeSampleMemberIds=[];
-  if(canManage){
-   const m=await client.from('company_memberships').select('user_id,status').eq('company_id',activeCompany.id);
-   if(m.error)throw m.error;
-   activeSampleMemberIds=(m.data||[]).filter(x=>x.status==='active').map(x=>x.user_id);
-   activeSampleMemberIds.forEach(id=>ids.add(id));
-  }
-  if(ids.size){
-   const p=await client.rpc('sample_company_employee_names',{p_company_id:activeCompany.id});
-   if(p.error)throw p.error;
-   sampleNames=new Map((p.data||[]).map(x=>[x.id,x.full_name||'Employee']));
-  }
+  const activeSampleMemberIds=(m.data||[]).filter(x=>x.status==='active').map(x=>x.user_id);
+  sampleNames=new Map((p.data||[]).map(x=>[x.id,x.full_name||'Employee']));
   if(canManage){
    activeSampleMemberIds.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=sampleNames.get(id)||'Employee';select.appendChild(o);});
   }else{const o=document.createElement('option');o.value=currentUser.id;o.textContent=sampleNames.get(currentUser.id)||'Myself';select.appendChild(o);select.value=currentUser.id;select.disabled=true;}
