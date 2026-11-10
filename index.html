@@ -119,7 +119,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="field"><label>&nbsp;</label><button id="accessoryIssueButton" type="submit">Issue to Employee</button></div>
 </form></div><p id="accessoryMessage" role="status"></p><div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:12px 0"><button id="accessoryRefresh" type="button">Refresh Records</button><select id="accessoryFilter" aria-label="Filter accessory records"><option value="all">All Records</option><option value="issued">Not Returned</option><option value="returned">Returned</option></select></div>
 <div style="overflow-x:auto"><table><thead><tr><th>Employee</th><th>Accessory</th><th>Code</th><th>Qty</th><th>Issued</th><th>Due</th><th>Status</th><th>Action</th></tr></thead><tbody id="accessoryRows"></tbody></table></div></section>
- <section id="samplesTab" class="panel hidden"><h3>Samples Issue / Return / Approval</h3><p class="muted">Company-wise sample tracking. Only authorized company managers can issue, approve and return samples.</p>
+ <section id="samplesTab" class="panel hidden"><h3>Samples Issue / Return / Approval</h3><p class="muted">Employees submit their own samples for approval. Company Owner / authorized managers approve, reject and confirm returns.</p>
 <div id="sampleEditor"><form id="sampleForm" class="grid">
 <div class="field"><label>Employee *</label><select id="sampleEmployee" required><option value="">Select employee</option></select></div>
 <div class="field"><label>Product Name *</label><input id="sampleName" maxlength="200" required></div>
@@ -728,7 +728,7 @@ const sampleCanManage=()=>!!activeCompany&&membership?.status==='active'&&['comp
 $('sampleIssueDate').value=new Date().toISOString().slice(0,10);
 async function loadSamples(){
  const canManage=sampleCanManage();
- $('sampleEditor').classList.toggle('hidden',!canManage);
+ $('sampleEditor').classList.toggle('hidden',!activeCompany||membership?.status!=='active');
  $('sampleRows').innerHTML='';sampleRecords=[];sampleNames=new Map();
  if(!activeCompany||!membership){msg('sampleMessage','An approved company is required.');return;}
  msg('sampleMessage','Loading samples...');
@@ -752,7 +752,7 @@ async function loadSamples(){
    const m=await client.from('company_memberships').select('user_id,status').eq('company_id',activeCompany.id);
    if(m.error)throw m.error;
    (m.data||[]).filter(x=>x.status==='active').forEach(x=>{const o=document.createElement('option');o.value=x.user_id;o.textContent=sampleNames.get(x.user_id)||'Employee';select.appendChild(o);});
-  }
+  }else{const o=document.createElement('option');o.value=currentUser.id;o.textContent=sampleNames.get(currentUser.id)||'Myself';select.appendChild(o);select.value=currentUser.id;select.disabled=true;}
   $('sampleReportPanel').classList.toggle('hidden',!sampleCanReport());const reportSelect=$('sampleReportEmployee');const previous=reportSelect.value;reportSelect.innerHTML='<option value="all">All Employees</option>';if(sampleCanReport())for(const [id,name] of [...sampleNames.entries()].sort((a,b)=>a[1].localeCompare(b[1]))){const option=document.createElement('option');option.value=id;option.textContent=name;reportSelect.appendChild(option);}if([...reportSelect.options].some(o=>o.value===previous)&&previous!=='all')reportSelect.value=previous;else{const firstRecord=sampleRecords.find(x=>[...reportSelect.options].some(o=>o.value===x.employee_id));if(firstRecord)reportSelect.value=firstRecord.employee_id;}
   renderSamples();msg('sampleMessage',sampleRecords.length+' sample record(s) loaded.');
  }catch(e){msg('sampleMessage','Unable to load samples: '+friendlyError(e),true);}
@@ -810,15 +810,15 @@ $('sampleReportPrint').onclick=async()=>{
 $('sampleFilter').onchange=renderSamples;
 $('sampleRefresh').onclick=()=>loadSamples();
 $('sampleForm').onsubmit=async e=>{
- e.preventDefault();if(!sampleCanManage()){msg('sampleMessage','Only authorized managers can issue samples.',true);return;}
- const employee_id=$('sampleEmployee').value,issue_date=$('sampleIssueDate').value,expected_return_date=$('sampleDueDate').value||null;
+ e.preventDefault();if(!activeCompany||membership?.status!=='active'){msg('sampleMessage','Active company membership required.',true);return;}
+ const employee_id=sampleCanManage()?$('sampleEmployee').value:currentUser.id,issue_date=$('sampleIssueDate').value,expected_return_date=$('sampleDueDate').value||null;
  if(expected_return_date&&expected_return_date<issue_date){msg('sampleMessage','Return due date cannot precede issue date.',true);return;}
  const file=$('sampleImage').files[0];if(file&&(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>5242880)){msg('sampleMessage','Please choose a JPG, PNG or WEBP photo up to 5 MB.',true);return;}const btn=$('sampleSave');btn.disabled=true;
  try{
   let image_path=null;if(file){const ext=file.type==='image/png'?'png':file.type==='image/webp'?'webp':'jpg';image_path=activeCompany.id+'/'+crypto.randomUUID()+'.'+ext;const upload=await client.storage.from('sample-images').upload(image_path,file,{contentType:file.type,upsert:false});if(upload.error)throw upload.error;}const payload={company_id:activeCompany.id,employee_id,submitted_company_name:$('sampleCompanyName').value.trim(),submitted_department:$('sampleDepartment').value,submitted_person:$('samplePerson').value.trim()||null,image_path,sample_name:$('sampleName').value.trim(),item_code:$('sampleCode').value.trim()||null,quantity:Number($('sampleQty').value),issue_date,expected_return_date,notes:$('sampleNotes').value.trim()||null,issued_by:currentUser.id};
   const {error}=await client.from('employee_sample_issues').insert(payload);
   if(error)throw error;
-  $('sampleForm').reset();$('sampleIssueDate').value=new Date().toISOString().slice(0,10);
+  $('sampleForm').reset();$('sampleIssueDate').value=new Date().toISOString().slice(0,10);if(!sampleCanManage())$('sampleEmployee').value=currentUser.id;
   await loadSamples();msg('sampleMessage','Sample issued successfully. Approval pending.');
  }catch(err){msg('sampleMessage','Unable to issue sample: '+friendlyError(err),true);}finally{btn.disabled=false;}
 };
