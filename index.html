@@ -131,6 +131,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="full"><button class="btn" id="sampleSave" type="submit">Issue Sample (Pending Approval)</button></div>
 </form></div>
 <p id="sampleMessage" role="status"></p><div class="row no-print" style="margin:12px 0"><button class="btn light" id="sampleRefresh" type="button">Refresh Samples</button><select id="sampleFilter"><option value="all">All Records</option><option value="pending">Pending Approval</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="not_returned">Not Returned</option><option value="returned">Returned</option></select></div>
+<div id="sampleReportPanel" class="row no-print hidden" style="margin:12px 0;gap:8px;flex-wrap:wrap"><label for="sampleReportEmployee">Employee-wise Report</label><select id="sampleReportEmployee"><option value="all">All Employees</option></select><button type="button" class="btn light" id="sampleReportDownload">Download CSV</button><button type="button" class="btn light" id="sampleReportPrint">Print / Save PDF</button></div>
 <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Product Name</th><th>Photo</th><th>Client Name</th><th>Submitted To</th><th>Person Name</th><th>Code</th><th>Qty</th><th>Issue Date</th><th>Due</th><th>Approval</th><th>Status</th><th>Action</th></tr></thead><tbody id="sampleRows"></tbody></table></div></section>
  <section id="ordersTab" class="panel hidden"><h3>Orders Received</h3><p class="muted">Customer orders, quantities and order status</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
  <section id="aboutTab" class="panel hidden"><h3>About Us</h3><p class="muted">Daily Kharcha information, updates and customer support</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
@@ -390,6 +391,7 @@ $('accessoryRows').onclick=async e=>{
 
 
 let sampleRecords=[],sampleNames=new Map();
+const sampleCanReport=()=>!!activeCompany&&membership?.status==='active'&&['company_owner','owner','company_admin','hr_admin'].includes(membership.role);
 const sampleCanManage=()=>!!activeCompany&&membership?.status==='active'&&['company_owner','owner','company_admin','hr_admin','manager'].includes(membership.role);
 $('sampleIssueDate').value=new Date().toISOString().slice(0,10);
 async function loadSamples(){
@@ -419,6 +421,7 @@ async function loadSamples(){
    if(m.error)throw m.error;
    (m.data||[]).filter(x=>x.status==='active').forEach(x=>{const o=document.createElement('option');o.value=x.user_id;o.textContent=sampleNames.get(x.user_id)||'Employee';select.appendChild(o);});
   }
+  $('sampleReportPanel').classList.toggle('hidden',!sampleCanReport());const reportSelect=$('sampleReportEmployee');const previous=reportSelect.value;reportSelect.innerHTML='<option value="all">All Employees</option>';if(sampleCanReport())for(const [id,name] of [...sampleNames.entries()].sort((a,b)=>a[1].localeCompare(b[1]))){const option=document.createElement('option');option.value=id;option.textContent=name;reportSelect.appendChild(option);}if([...reportSelect.options].some(o=>o.value===previous))reportSelect.value=previous;
   renderSamples();msg('sampleMessage',sampleRecords.length+' sample record(s) loaded.');
  }catch(e){msg('sampleMessage','Unable to load samples: '+friendlyError(e),true);}
 }
@@ -432,6 +435,37 @@ function renderSamples(){
   return '<tr><td>'+esc(sampleNames.get(x.employee_id)||'Employee')+'</td><td>'+esc(x.sample_name)+'</td><td>'+(x.image_path?'<button type="button" class="btn light" data-sample-image="'+esc(x.id)+'">View Photo</button>':'—')+'</td><td>'+esc(x.submitted_company_name||'—')+'</td><td>'+esc(x.submitted_department||'—')+'</td><td>'+esc(x.submitted_person||'—')+'</td><td>'+esc(x.item_code||'—')+'</td><td>'+esc(x.quantity)+'</td><td>'+esc(x.issue_date)+'</td><td>'+esc(x.expected_return_date||'—')+'</td><td>'+esc(x.approval_status)+'</td><td>'+esc(x.returned_at?'Returned ✓ ('+x.returned_at+')':'Not Returned')+'</td><td class="actions">'+actions+'</td></tr>';
  }).join(''):'<tr><td colspan="13" class="empty">No sample records found.</td></tr>';
 }
+const sampleReportColumns=[['Employee',x=>sampleNames.get(x.employee_id)||'Employee'],['Product Name',x=>x.sample_name],['Client Name',x=>x.submitted_company_name],['Department',x=>x.submitted_department],['Person Name',x=>x.submitted_person],['Serial Code',x=>x.item_code],['Quantity',x=>x.quantity],['Issue Date',x=>x.issue_date],['Expected Return',x=>x.expected_return_date],['Approval',x=>x.approval_status],['Return Status',x=>x.returned_at?'Returned':'Not Returned'],['Return Date',x=>x.returned_at]];
+async function getSampleReportRecords(){
+ if(!sampleCanReport())throw Error('Admin access required.');
+ const employee=$('sampleReportEmployee').value,records=[];
+ for(let offset=0;offset<50000;offset+=500){
+  let q=client.from('employee_sample_issues').select('employee_id,sample_name,submitted_company_name,submitted_department,submitted_person,item_code,quantity,issue_date,expected_return_date,approval_status,returned_at').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).range(offset,offset+499);
+  if(employee!=='all')q=q.eq('employee_id',employee);
+  const {data,error}=await q;if(error)throw error;records.push(...(data||[]));if(!data||data.length<500)break;
+ }
+ return records;
+}
+$('sampleReportDownload').onclick=async()=>{
+ const btn=$('sampleReportDownload');btn.disabled=true;
+ try{
+  const records=await getSampleReportRecords();if(!records.length){msg('sampleMessage','No sample records for selected employee.');return;}
+  const csvCell=v=>{const value=String(v??'');const safe=/^[=+@\-\t\r]/.test(value)?"'"+value:value;return '"'+safe.replace(/"/g,'""')+'"';};
+  const csv='\uFEFF'+[sampleReportColumns.map(c=>csvCell(c[0])).join(','),...records.map(x=>sampleReportColumns.map(c=>csvCell(c[1](x))).join(','))].join('\r\n');
+  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='Daily-Kharcha-Samples-'+new Date().toISOString().slice(0,10)+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);msg('sampleMessage',records.length+' sample records downloaded.');
+ }catch(e){msg('sampleMessage','Report download failed: '+friendlyError(e),true);}finally{btn.disabled=false;}
+};
+$('sampleReportPrint').onclick=async()=>{
+ if(!sampleCanReport())return;
+ const win=window.open('','_blank');if(!win){msg('sampleMessage','Please allow pop-ups to print report.',true);return;}
+ win.document.write('<p>Preparing Sample Report...</p>');
+ try{
+  const records=await getSampleReportRecords(),cell=v=>esc(String(v??'—'));
+  const rows=records.map(x=>'<tr>'+sampleReportColumns.map(c=>'<td>'+cell(c[1](x))+'</td>').join('')+'</tr>').join('');
+  const name=$('sampleReportEmployee').value==='all'?'All Employees':sampleNames.get($('sampleReportEmployee').value)||'Employee';
+  win.document.open();win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Samples Report</title><style>body{font:12px Arial;padding:16px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #aaa;padding:5px;text-align:left}th{background:#eee}h2{margin-bottom:4px}@page{size:A4 landscape;margin:10mm}</style></head><body><h2>Daily Kharcha – Employee-wise Samples Report</h2><p>Employee: '+cell(name)+' | Date: '+new Date().toLocaleDateString()+' | Records: '+records.length+'</p><table><thead><tr>'+sampleReportColumns.map(c=>'<th>'+cell(c[0])+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></body></html>');win.document.close();win.focus();win.print();
+ }catch(e){win.close();msg('sampleMessage','Report print failed: '+friendlyError(e),true);}
+};
 $('sampleFilter').onchange=renderSamples;
 $('sampleRefresh').onclick=()=>loadSamples();
 $('sampleForm').onsubmit=async e=>{
