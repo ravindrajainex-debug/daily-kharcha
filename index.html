@@ -538,6 +538,40 @@ async function refreshIncentiveRates(){
  }
 }
 }
+// Keep employee incentive visibility in sync with admin changes across sessions.
+let employeeIncentiveVisibilityCheck=0;
+async function syncEmployeeIncentiveVisibility(){
+ if(!activeCompany||!currentUser||!ordersCanManage()||ordersCanReview())return;
+ const companyId=activeCompany.id,userId=currentUser.id,request=++employeeIncentiveVisibilityCheck;
+ try{
+  const {data,error}=await client.from('employee_incentive_rates')
+   .select('employee_visible,incentive_percent,fixed_monthly_amount')
+   .eq('company_id',companyId).eq('employee_id',userId).maybeSingle();
+  if(error)throw error;
+  if(request!==employeeIncentiveVisibilityCheck||activeCompany?.id!==companyId||currentUser?.id!==userId)return;
+  const allowed=data?.employee_visible===true;
+  incentiveVisible.set(userId,allowed);
+  const panel=$('employeeIncentive');
+  panel.classList.toggle('hidden',!allowed);
+  if(!allowed){
+   $('employeeIncentiveValue').textContent='';
+   $('employeeIncentiveHistory').replaceChildren();
+   return;
+  }
+  incentiveRates.set(userId,Number(data.incentive_percent)||0);
+  incentiveFixedAmounts.set(userId,data.fixed_monthly_amount);
+  refreshEmployeeCumulativeSales();
+ }catch(e){
+  // Fail closed if the latest permission cannot be verified.
+  $('employeeIncentive').classList.add('hidden');
+  $('employeeIncentiveValue').textContent='';
+  $('employeeIncentiveHistory').replaceChildren();
+  console.warn('Unable to verify employee incentive visibility',e);
+ }
+}
+setInterval(()=>{if(!document.hidden)syncEmployeeIncentiveVisibility();},10000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncEmployeeIncentiveVisibility();});
+window.addEventListener('focus',syncEmployeeIncentiveVisibility);
 $('incentiveVisibilityEmployee').addEventListener('change',()=>{$('incentiveVisibilityAllowed').checked=incentiveVisible.get($('incentiveVisibilityEmployee').value)===true;});
 $('incentiveVisibilitySave').onclick=async()=>{
  if(!incentiveCanToggle())return;
@@ -550,7 +584,7 @@ $('incentiveVisibilitySave').onclick=async()=>{
  const verify=await client.from('employee_incentive_rates').select('employee_visible').eq('company_id',activeCompany.id).eq('employee_id',employee).maybeSingle();
  if(verify.error)throw verify.error;
  if(verify.data?.employee_visible!==visible)throw new Error('Visibility could not be verified. Please retry.');
- incentiveVisible.set(employee,visible);msg('incentiveVisibilityMessage',(orderNames.get(employee)||'Selected employee')+': '+(visible?'Incentive visibility enabled and verified.':'Incentive visibility disabled and verified.'));
+ incentiveVisible.set(employee,visible);if(employee===currentUser?.id&&!visible){$('employeeIncentive').classList.add('hidden');$('employeeIncentiveHistory').replaceChildren();}msg('incentiveVisibilityMessage',(orderNames.get(employee)||'Selected employee')+': '+(visible?'Incentive visibility enabled and verified.':'Incentive visibility disabled and verified.'));
 
  }catch(e){msg('incentiveVisibilityMessage','Unable to save: '+friendlyError(e),true);}finally{btn.disabled=false;}
 };
