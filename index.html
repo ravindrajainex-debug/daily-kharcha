@@ -208,14 +208,17 @@ try{
 $('forgotBtn').onclick=async()=>{const email=(mode==='signup'?$('email').value:$('loginEmail').value).trim();if(!email){msg('authError','Enter your email address first.',true);return;}const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:location.origin+'/'});if(error)msg('authError',friendlyError(error),true);else msg('authMessage','Password reset link sent. Please check your email.');};
 async function loadApp(user){
  currentUser=user;
- const p=await client.from('profiles').select('*').eq('id',user.id).single();if(p.error)throw p.error;profile=p.data;if(profile.account_status==='suspended'){await client.auth.signOut();currentUser=null;profile=null;throw new Error('This account is suspended. Please contact Daily Kharcha support.');}
- // Company application check and membership lookup are independent network requests.
- // Run them together so login does not wait for two consecutive round trips.
- const [applicationResult,m]=await Promise.all([
-  ensureCompanyApplication(),
+ // Fetch identity and active membership concurrently. Authorization is still checked before showing the app.
+ const [p,m]=await Promise.all([
+  client.from('profiles').select('*').eq('id',user.id).single(),
   client.from('company_memberships').select('company_id,role,status').eq('user_id',user.id).eq('status','active')
- ]);if(m.error)throw m.error;
+ ]);
+ if(p.error)throw p.error;if(m.error)throw m.error;
+ profile=p.data;
+ if(profile.account_status==='suspended'){await client.auth.signOut();currentUser=null;profile=null;throw new Error('This account is suspended. Please contact Daily Kharcha support.');}
  membership=m.data?.[0]||null;activeCompany=null;
+ // Existing active members do not need the company-application signup check on each login.
+ if(!membership)await ensureCompanyApplication();
  if(membership){const c=await client.from('companies').select('*').eq('id',membership.company_id).single();if(!c.error)activeCompany=c.data;}
  isAdmin=!!profile.is_platform_admin;
  const payrollEditor=canApproveSalary();
