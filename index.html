@@ -150,7 +150,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="field"><label>Expected Delivery</label><input id="orderDue" type="date"></div>
 <div class="field"><label>Approval</label><p class="note">Submitted order goes to Company Owner for Accept / Reject.</p></div>
 <div class="field"><label>PO Upload (PDF / Image, max 10 MB)</label><input id="orderFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp"></div>
-<div class="field"><label>Notes</label><input id="orderNotes" maxlength="500"></div>
+<div class="field"><label>Customization Details</label><textarea id="orderNotes" maxlength="1000" rows="3" placeholder="Logo printing, engraving, colour, packaging, branding instructions, etc."></textarea></div>
 <div class="full"><button class="btn" type="submit" id="orderSave">Save Order</button></div>
 </form></div><p id="ordersMessage" role="status"></p>
 <div class="row no-print" style="margin:12px 0"><button class="btn light" type="button" id="ordersRefresh">Refresh Orders</button><select id="ordersFilter"><option value="all">All Orders</option><option value="received">Received</option><option value="processing">Processing</option><option value="dispatched">Dispatched</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select></div>
