@@ -143,13 +143,13 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="field"><label>PO Number</label><input id="orderPoNumber" maxlength="120"></div>
 <div class="field"><label>Order Date *</label><input id="orderDate" type="date" required></div>
 <div class="field"><label>Expected Delivery</label><input id="orderDue" type="date"></div>
-<div class="field"><label>Order Status</label><select id="orderStatus"><option value="received">Received</option><option value="processing">Processing</option><option value="dispatched">Dispatched</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select></div>
+<div class="field"><label>Approval</label><p class="note">Submitted order goes to Company Owner for Accept / Reject.</p></div>
 <div class="field"><label>PO Upload (PDF / Image, max 10 MB)</label><input id="orderFile" type="file" accept="application/pdf,image/jpeg,image/png,image/webp"></div>
 <div class="field"><label>Notes</label><input id="orderNotes" maxlength="500"></div>
 <div class="full"><button class="btn" type="submit" id="orderSave">Save Order</button></div>
 </form></div><p id="ordersMessage" role="status"></p>
 <div class="row no-print" style="margin:12px 0"><button class="btn light" type="button" id="ordersRefresh">Refresh Orders</button><select id="ordersFilter"><option value="all">All Orders</option><option value="received">Received</option><option value="processing">Processing</option><option value="dispatched">Dispatched</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select></div>
-<div class="table-wrap"><table><thead><tr><th>Employee</th><th>Client</th><th>Product</th><th>Code</th><th>Qty</th><th>Value (₹)</th><th>PO Number</th><th>Order Date</th><th>Delivery</th><th>Status</th><th>PO</th><th>Action</th></tr></thead><tbody id="ordersRows"></tbody></table></div></section>
+<div class="table-wrap"><table><thead><tr><th>Employee</th><th>Client</th><th>Product</th><th>Code</th><th>Qty</th><th>Value (₹)</th><th>PO Number</th><th>Order Date</th><th>Delivery</th><th>Approval</th><th>Status</th><th>PO</th><th>Action</th></tr></thead><tbody id="ordersRows"></tbody></table></div></section>
  <section id="aboutTab" class="panel hidden"><h3>About Us</h3><p class="muted">Daily Kharcha information, updates and customer support</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
  <section id="profileTab" class="panel hidden"><h3>My profile</h3><form id="profileForm" class="grid"><div class="field"><label>Full name</label><input id="profileName"></div><div class="field"><label>Mobile</label><input id="profileMobile"></div><div class="field"><label>Designation</label><input id="profileDesignation"></div><div class="field"><label>Language</label><select id="profileLanguage"><option value="en">English</option><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="gu">Gujarati</option><option value="kn">Kannada</option><option value="ur">Urdu</option></select></div><div class="full"><button class="btn" type="submit">Save profile</button><span id="profileMessage" class="muted"></span></div></form><p class="note" id="profileEmail"></p></section>
  <section id="adminTabPanel" class="panel hidden"><h3>Owner Admin – Daily Kharcha</h3><p class="muted">Platform overview and company signup requests.</p><div class="stats"><div class="stat"><small>Registered users</small><strong id="adminUserCount">—</strong></div><div class="stat"><small>Company applications</small><strong id="adminCompanyCount">—</strong></div><div class="stat"><small>Expense entries</small><strong id="adminExpenseCount">—</strong></div></div><div class="row between" style="margin:18px 0 10px;gap:12px"><h3 style="margin:0">User Management</h3><input id="adminUserSearch" type="search" placeholder="Search name, mobile, designation or user ID" aria-label="Search registered users" style="max-width:360px;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px"></div><p class="muted small">Manage account access. Suspended accounts cannot use company features. Existing records are retained.</p><div class="table-wrap"><table><thead><tr><th>Name</th><th>Mobile</th><th>Designation</th><th>Company</th><th>Account</th><th>Access</th><th>User ID</th><th>Joined</th><th>Action</th></tr></thead><tbody id="adminUsersRows"></tbody></table><div id="adminUsersEmpty" class="empty">No matching user profiles found.</div></div><hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h3>Company applications</h3><p class="muted">Approving an application activates its owner membership.</p><p id="adminMessage" class="muted"></p><div class="table-wrap"><table><thead><tr><th>Company</th><th>Contact</th><th>Email</th><th>Mobile</th><th>Status</th><th>Action</th></tr></thead><tbody id="applicationsRows"></tbody></table><div id="applicationsEmpty" class="empty">No company applications found.</div></div></section>
@@ -408,19 +408,21 @@ $('accessoryRows').onclick=async e=>{
 
 
 let orderRecords=[],orderNames=new Map();
-const ordersCanManage=()=>!!activeCompany&&membership?.status==='active'&&['company_owner','owner','company_admin','hr_admin','manager'].includes(membership.role);
+const ordersCanManage=()=>!!activeCompany&&membership?.status==='active';
+const ordersCanReview=()=>!!activeCompany&&membership?.status==='active'&&['company_owner','owner','company_admin'].includes(membership.role);
+const ordersCanProgress=()=>!!activeCompany&&membership?.status==='active'&&['company_owner','owner','company_admin','hr_admin','manager'].includes(membership.role);
 $('orderDate').value=new Date().toISOString().slice(0,10);
 async function loadOrders(){
  $('ordersEditor').classList.toggle('hidden',!ordersCanManage());
  if(!activeCompany||!membership){msg('ordersMessage','Approved company required.',true);return;}
  msg('ordersMessage','Loading orders...');
  try{
-  const q=await client.from('company_orders_received').select('id,employee_id,client_name,product_name,product_code,quantity,order_value,po_number,order_date,expected_delivery,order_status,po_file_path').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(250);
+  const q=await client.from('company_orders_received').select('id,employee_id,client_name,product_name,product_code,quantity,order_value,po_number,order_date,expected_delivery,order_status,po_file_path,approval_status,rejection_reason').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(250);
   if(q.error)throw q.error;orderRecords=q.data||[];
   const p=await client.rpc('sample_company_employee_names',{p_company_id:activeCompany.id});if(p.error)throw p.error;
   orderNames=new Map((p.data||[]).map(x=>[x.id,x.full_name]));
   const sel=$('orderEmployee');sel.innerHTML='<option value="">Select Employee</option>';
-  if(ordersCanManage())for(const [id,name] of orderNames){const o=document.createElement('option');o.value=id;o.textContent=name;sel.appendChild(o);}
+  {const o=document.createElement('option');o.value=currentUser.id;o.textContent=orderNames.get(currentUser.id)||'My Order';sel.appendChild(o);sel.value=currentUser.id;}
   renderOrders();msg('ordersMessage',orderRecords.length+' order record(s) loaded.');
  }catch(e){msg('ordersMessage','Unable to load orders: '+friendlyError(e),true);}
 }
@@ -428,9 +430,11 @@ function renderOrders(){
  const filter=$('ordersFilter').value;
  const records=orderRecords.filter(x=>filter==='all'||x.order_status===filter);
  $('ordersRows').innerHTML=records.length?records.map(x=>{
- const options=['received','processing','dispatched','delivered','cancelled'].map(v=>'<option value="'+v+'"'+(v===x.order_status?' selected':'')+'>'+v[0].toUpperCase()+v.slice(1)+'</option>').join('');
- return '<tr><td>'+esc(orderNames.get(x.employee_id)||'Employee')+'</td><td>'+esc(x.client_name)+'</td><td>'+esc(x.product_name)+'</td><td>'+esc(x.product_code||'—')+'</td><td>'+esc(x.quantity)+'</td><td>'+esc(x.order_value??'—')+'</td><td>'+esc(x.po_number||'—')+'</td><td>'+esc(x.order_date)+'</td><td>'+esc(x.expected_delivery||'—')+'</td><td>'+esc(x.order_status)+'</td><td>'+(x.po_file_path?'<button type="button" class="btn light" data-order-po="'+esc(x.id)+'">View PO</button>':'—')+'</td><td>'+(ordersCanManage()?'<select data-order-status="'+esc(x.id)+'">'+options+'</select>':'—')+'</td></tr>';
- }).join(''):'<tr><td colspan="12">No order records found.</td></tr>';
+ const next=x.order_status==='received'?['processing','cancelled']:x.order_status==='processing'?['dispatched','cancelled']:x.order_status==='dispatched'?['delivered']:[];
+ const options='<option value="">Update Status</option>'+next.map(v=>'<option value="'+v+'">'+v[0].toUpperCase()+v.slice(1)+'</option>').join('');
+ const action=x.approval_status==='pending'&&ordersCanReview()?'<button type="button" data-order-review="accepted" data-order-id="'+esc(x.id)+'">Accept</button> <button type="button" data-order-review="rejected" data-order-id="'+esc(x.id)+'">Reject</button>':x.approval_status==='accepted'&&ordersCanProgress()&&next.length?'<select data-order-status="'+esc(x.id)+'">'+options+'</select>':'—';
+ return '<tr><td>'+esc(orderNames.get(x.employee_id)||'Employee')+'</td><td>'+esc(x.client_name)+'</td><td>'+esc(x.product_name)+'</td><td>'+esc(x.product_code||'—')+'</td><td>'+esc(x.quantity)+'</td><td>'+esc(x.order_value??'—')+'</td><td>'+esc(x.po_number||'—')+'</td><td>'+esc(x.order_date)+'</td><td>'+esc(x.expected_delivery||'—')+'</td><td>'+esc(x.approval_status)+(x.rejection_reason?' — '+esc(x.rejection_reason):'')+'</td><td>'+esc(x.order_status)+'</td><td>'+(x.po_file_path?'<button type="button" class="btn light" data-order-po="'+esc(x.id)+'">View PO</button>':'—')+'</td><td>'+action+'</td></tr>';
+ }).join(''):'<tr><td colspan="13">No order records found.</td></tr>';
 }
 $('ordersRefresh').onclick=loadOrders;$('ordersFilter').onchange=renderOrders;
 $('ordersForm').onsubmit=async e=>{
@@ -442,22 +446,23 @@ $('ordersForm').onsubmit=async e=>{
  try{
   let po_file_path=null;
   if(file){const ext=file.type==='application/pdf'?'pdf':file.type==='image/png'?'png':file.type==='image/webp'?'webp':'jpg';po_file_path=activeCompany.id+'/'+crypto.randomUUID()+'.'+ext;const upload=await client.storage.from('order-po-files').upload(po_file_path,file,{contentType:file.type,upsert:false});if(upload.error)throw upload.error;}
-  const payload={company_id:activeCompany.id,employee_id:$('orderEmployee').value,client_name:$('orderClient').value.trim(),product_name:$('orderProduct').value.trim(),product_code:$('orderCode').value.trim()||null,quantity:Number($('orderQty').value),order_value:$('orderValue').value?Number($('orderValue').value):null,po_number:$('orderPoNumber').value.trim()||null,order_date:date,expected_delivery:due,order_status:$('orderStatus').value,po_file_path,notes:$('orderNotes').value.trim()||null,created_by:currentUser.id};
+  const payload={company_id:activeCompany.id,employee_id:$('orderEmployee').value,client_name:$('orderClient').value.trim(),product_name:$('orderProduct').value.trim(),product_code:$('orderCode').value.trim()||null,quantity:Number($('orderQty').value),order_value:$('orderValue').value?Number($('orderValue').value):null,po_number:$('orderPoNumber').value.trim()||null,order_date:date,expected_delivery:due,order_status:'received',approval_status:'pending',po_file_path,notes:$('orderNotes').value.trim()||null,created_by:currentUser.id};
   const {error}=await client.from('company_orders_received').insert(payload);if(error)throw error;
   $('ordersForm').reset();$('orderDate').value=new Date().toISOString().slice(0,10);
   await loadOrders();msg('ordersMessage','Order saved successfully.');
  }catch(e){msg('ordersMessage','Unable to save order: '+friendlyError(e),true);}finally{btn.disabled=false;}
 };
 $('ordersRows').onclick=async e=>{
+ const review=e.target.closest('button[data-order-review]');if(review){if(!ordersCanReview())return;const decision=review.dataset.orderReview;let reason=null;if(decision==='rejected'){reason=prompt('Please enter rejection reason:');if(reason===null)return;if(!reason.trim()){msg('ordersMessage','Rejection reason is required.',true);return;}}review.disabled=true;try{const {error}=await client.rpc('review_company_order',{p_order_id:review.dataset.orderId,p_decision:decision,p_reason:reason});if(error)throw error;await loadOrders();msg('ordersMessage','Order '+decision+'.');}catch(err){msg('ordersMessage','Review failed: '+friendlyError(err),true);}finally{review.disabled=false;}return;}
  const b=e.target.closest('button[data-order-po]');if(!b)return;
  const rec=orderRecords.find(x=>x.id===b.dataset.orderPo);if(!rec?.po_file_path)return;
  b.disabled=true;try{const {data,error}=await client.storage.from('order-po-files').createSignedUrl(rec.po_file_path,60);if(error)throw error;window.open(data.signedUrl,'_blank','noopener,noreferrer');}catch(err){msg('ordersMessage','Unable to open PO: '+friendlyError(err),true);}finally{b.disabled=false;}
 };
 $('ordersRows').onchange=async e=>{
- const sel=e.target.closest('select[data-order-status]');if(!sel||!ordersCanManage())return;
+ const sel=e.target.closest('select[data-order-status]');if(!sel||!ordersCanProgress()||!sel.value)return;
  const id=sel.dataset.orderStatus,rec=orderRecords.find(x=>x.id===id);if(!rec)return;
  const previous=rec.order_status;sel.disabled=true;
- try{const {data,error}=await client.from('company_orders_received').update({order_status:sel.value,updated_at:new Date().toISOString()}).eq('id',id).eq('company_id',activeCompany.id).select('id');if(error)throw error;if(!data?.length)throw Error('Update not permitted');await loadOrders();msg('ordersMessage','Order status updated.');}
+ try{const {error}=await client.rpc('advance_company_order',{p_order_id:id,p_status:sel.value});if(error)throw error;await loadOrders();msg('ordersMessage','Order status updated.');}
  catch(err){sel.value=previous;msg('ordersMessage','Status update failed: '+friendlyError(err),true);}finally{sel.disabled=false;}
 };
 
