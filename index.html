@@ -509,7 +509,7 @@ async function refreshIncentiveRates(){
  $('employeeIncentive').classList.toggle('hidden',true);
  if(!ordersCanManage())return;
  const {data,error}=await client.from('employee_incentive_rates').select('employee_id,incentive_percent,fixed_monthly_amount,employee_visible').eq('company_id',activeCompany.id);
- if(error){msg('incentiveMessage','Unable to load rates: '+friendlyError(error),true);return;}
+ if(error){if(!isAdmin){$('employeeIncentive').classList.remove('hidden');$('employeeIncentiveValue').textContent='Unable to load incentive: '+friendlyError(error);}else msg('incentiveMessage','Unable to load rates: '+friendlyError(error),true);return;}
  incentiveRates=new Map((data||[]).map(x=>[x.employee_id,Number(x.incentive_percent)]));
  incentiveFixedAmounts=new Map((data||[]).map(x=>[x.employee_id,x.fixed_monthly_amount]));
  incentiveVisible=new Map((data||[]).map(x=>[x.employee_id,!!x.employee_visible]));
@@ -525,7 +525,9 @@ async function refreshIncentiveRates(){
  if([...sel.options].some(x=>x.value===old))sel.value=old;
  $('incentiveRate').value=String(incentiveRates.get(sel.value)??0);
  $('incentiveFixedAmount').value=incentiveFixedAmounts.get(sel.value)??'';
- }else if(incentiveVisible.get(currentUser.id)===true){
+ }else{
+ const myRate=(data||[]).find(x=>x.employee_id===currentUser.id);
+ if(myRate?.employee_visible===true){
  $('employeeIncentive').classList.remove('hidden');
  const rate=incentiveRates.get(currentUser.id)??0;
  const fixed=incentiveFixedAmounts.get(currentUser.id);
