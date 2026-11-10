@@ -118,7 +118,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="field"><label>Notes</label><input id="accessoryNotes" maxlength="500"></div>
 <div class="field"><label>&nbsp;</label><button id="accessoryIssueButton" type="submit">Issue to Employee</button></div>
 </form></div><p id="accessoryMessage" role="status"></p><div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:12px 0"><button id="accessoryRefresh" type="button">Refresh Records</button><select id="accessoryFilter" aria-label="Filter accessory records"><option value="all">All Records</option><option value="issued">Not Returned</option><option value="returned">Returned</option></select></div>
-<div style="overflow-x:auto"><table><thead><tr><th>Employee</th><th>Accessory</th><th>Code</th><th>Qty</th><th>Issued</th><th>Due</th><th>Status</th><th>Action</th></tr></thead><tbody id="accessoryRows"></tbody></table></div></section>
+<div style="overflow-x:auto"><table><thead><tr><th>Employee</th><th>Accessory</th><th>Code</th><th>Qty</th><th>Issued</th><th>Due</th><th>Status</th><th>Action</th></tr></thead><tbody id="accessoryRows"></tbody></table></div><div class="row" style="margin-top:10px"><button type="button" class="btn light hidden" id="accessoryLoadMore">Load More (Next 50)</button><span id="accessoryPageStatus" class="muted"></span></div></section>
  <section id="samplesTab" class="panel hidden"><h3>Samples Issue / Return / Approval</h3><p class="muted">Employees submit their own samples for approval. Company Owner / authorized managers approve, reject and confirm returns.</p>
 <div id="sampleEditor"><form id="sampleForm" class="grid">
 <div class="field"><label>Employee *</label><select id="sampleEmployee" required><option value="">Select employee</option></select></div>
@@ -370,25 +370,37 @@ $('refreshCompanyMembers').onclick=()=>loadCompanyMembers();
 const accessoryManagers=['company_owner','company_admin','hr_admin','manager'];
 let accessoryRecords=[],accessoryNames=new Map();
 function accessoryCanManage(){return !!activeCompany&&!!membership&&membership.status==='active'&&accessoryManagers.includes(membership.role);}
-async function loadAccessories(){
- const rows=$('accessoryRows');rows.innerHTML='';accessoryRecords=[];accessoryNames=new Map();
+let accessoryHasMore=false;
+let accessoryLoading=false;
+async function loadAccessories(append=false){
+ if(accessoryLoading)return;
+ const rows=$('accessoryRows'),more=$('accessoryLoadMore');
  const canManage=accessoryCanManage();$('accessoryEditor').classList.toggle('hidden',!canManage);
  if(!activeCompany||!membership){msg('accessoryMessage','Select an approved company to view records.');return;}
- msg('accessoryMessage','Loading accessories...');
+ accessoryLoading=true;more.disabled=true;
+ const previousRecords=accessoryRecords,previousNames=accessoryNames;
+ if(!append){rows.innerHTML='';accessoryRecords=[];accessoryNames=new Map();}
+ msg('accessoryMessage',append?'Loading next 50 accessories...':'Loading accessories...');
  try{
-  // Fetch independent accessory and membership records concurrently.
+  const offset=append?accessoryRecords.length:0;
   const [q,m]=await Promise.all([
-   client.from('employee_accessory_issues').select('id,employee_id,accessory_name,item_code,quantity,issue_date,expected_return_date,returned_at,return_condition').eq('company_id',activeCompany.id).order('issue_date',{ascending:false}).limit(250),
+   client.from('employee_accessory_issues').select('id,employee_id,accessory_name,item_code,quantity,issue_date,expected_return_date,returned_at,return_condition').eq('company_id',activeCompany.id).order('issue_date',{ascending:false}).order('id',{ascending:false}).range(offset,offset+49),
    client.from('company_memberships').select('user_id,role,status').eq('company_id',activeCompany.id)
   ]);
   if(q.error||m.error)throw(q.error||m.error);
-  accessoryRecords=q.data||[];
-  const active=(m.data||[]).filter(x=>x.status==='active'),ids=[...new Set([...active.map(x=>x.user_id),...accessoryRecords.map(x=>x.employee_id)])];
-  if(ids.length){const p=await client.from('profiles').select('id,full_name').in('id',ids);if(p.error)throw p.error;accessoryNames=new Map((p.data||[]).map(x=>[x.id,x.full_name||'Employee']));}
-  const select=$('accessoryEmployee');select.innerHTML='<option value="">Select employee</option>';
+  const next=q.data||[];
+  const active=(m.data||[]).filter(x=>x.status==='active');
+  const ids=[...new Set([...active.map(x=>x.user_id),...next.map(x=>x.employee_id)])];
+  if(ids.length){const p=await client.from('profiles').select('id,full_name').in('id',ids);if(p.error)throw p.error;accessoryNames=new Map([...(append?accessoryNames:new Map()),...(p.data||[]).map(x=>[x.id,x.full_name||'Employee'])]);}
+  accessoryRecords=append?[...accessoryRecords,...next]:next;
+  accessoryHasMore=next.length===50;
+  const select=$('accessoryEmployee'),selected=select.value;
+  select.innerHTML='<option value="">Select employee</option>';
   if(canManage)active.forEach(x=>{const o=document.createElement('option');o.value=x.user_id;o.textContent=accessoryNames.get(x.user_id)||'Employee';select.appendChild(o);});
+  if([...select.options].some(x=>x.value===selected))select.value=selected;
   renderAccessories();msg('accessoryMessage',accessoryRecords.length+' record(s) loaded.');
- }catch(e){msg('accessoryMessage','Unable to load accessories: '+friendlyError(e),true);}
+ }catch(e){if(!append){accessoryRecords=previousRecords;accessoryNames=previousNames;renderAccessories();}msg('accessoryMessage','Unable to load accessories: '+friendlyError(e),true);}
+ finally{accessoryLoading=false;more.disabled=false;more.classList.toggle('hidden',!accessoryHasMore);$('accessoryPageStatus').textContent=accessoryRecords.length+' loaded';}
 }
 function renderAccessories(){
  const filter=$('accessoryFilter').value;
@@ -398,6 +410,7 @@ function renderAccessories(){
 $('accessoryIssueDate').value=new Date().toLocaleDateString('en-CA');
 $('accessoryFilter').onchange=renderAccessories;
 $('accessoryRefresh').onclick=()=>loadAccessories();
+$('accessoryLoadMore').onclick=()=>loadAccessories(true);
 $('openCompanyFromAccessories').onclick=()=>{showTab('company');Promise.allSettled([loadCompanyMembers(),loadInvitationRequests()]).then(results=>{if(results.some(x=>x.status==='rejected'))showRuntimeNotice('Company data could not load. Please retry.');});};
 $('accessoryIssueForm').onsubmit=async e=>{
  e.preventDefault();if(!accessoryCanManage()){msg('accessoryMessage','Only company managers can issue accessories.',true);return;}
