@@ -131,7 +131,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="full"><button class="btn" id="sampleSave" type="submit">Issue Sample (Pending Approval)</button></div>
 </form></div>
 <p id="sampleMessage" role="status"></p><div class="row no-print" style="margin:12px 0"><button class="btn light" id="sampleRefresh" type="button">Refresh Samples</button><select id="sampleFilter"><option value="all">All Records</option><option value="pending">Pending Approval</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="not_returned">Not Returned</option><option value="returned">Returned</option></select></div>
-<div id="sampleReportPanel" class="row no-print hidden" style="margin:12px 0;gap:8px;flex-wrap:wrap"><label for="sampleReportEmployee">Employee-wise Report</label><select id="sampleReportEmployee"><option value="all">All Employees</option></select><button type="button" class="btn light" id="sampleReportDownload">Download CSV</button><button type="button" class="btn light" id="sampleReportPrint">Print / Save PDF</button></div>
+<div id="sampleReportPanel" class="row no-print hidden" style="margin:12px 0;gap:8px;flex-wrap:wrap"><label for="sampleReportEmployee">Employee-wise Report</label><select id="sampleReportEmployee"><option value="all">All Employees</option></select><button type="button" class="btn light" id="sampleReportDownload">Download Report (Print / PDF)</button><button type="button" class="btn light" id="sampleReportPrint">Download Excel CSV</button></div>
 <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Product Name</th><th>Photo</th><th>Client Name</th><th>Submitted To</th><th>Person Name</th><th>Code</th><th>Qty</th><th>Issue Date</th><th>Due</th><th>Approval</th><th>Status</th><th>Action</th></tr></thead><tbody id="sampleRows"></tbody></table></div></section>
  <section id="ordersTab" class="panel hidden"><h3>Orders Received</h3><p class="muted">Customer orders, quantities and order status</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
  <section id="aboutTab" class="panel hidden"><h3>About Us</h3><p class="muted">Daily Kharcha information, updates and customer support</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
@@ -446,25 +446,33 @@ async function getSampleReportRecords(){
  }
  return records;
 }
+function downloadSampleFile(content,mime,filename){
+ const blob=new Blob([content],{type:mime});const url=URL.createObjectURL(blob);
+ const link=document.createElement('a');link.href=url;link.download=filename;link.style.display='none';document.body.appendChild(link);link.click();
+ setTimeout(()=>{link.remove();URL.revokeObjectURL(url);},10000);
+}
+const sampleReportCell=v=>{const value=String(v??'—');return value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');};
 $('sampleReportDownload').onclick=async()=>{
  const btn=$('sampleReportDownload');btn.disabled=true;
  try{
-  const records=await getSampleReportRecords();if(!records.length){msg('sampleMessage','No sample records for selected employee.');return;}
-  const csvCell=v=>{const value=String(v??'');const safe=/^[=+@\-\t\r]/.test(value)?"'"+value:value;return '"'+safe.replace(/"/g,'""')+'"';};
-  const csv='\uFEFF'+[sampleReportColumns.map(c=>csvCell(c[0])).join(','),...records.map(x=>sampleReportColumns.map(c=>csvCell(c[1](x))).join(','))].join('\r\n');
-  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='Daily-Kharcha-Samples-'+new Date().toISOString().slice(0,10)+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);msg('sampleMessage',records.length+' sample records downloaded.');
+  const records=await getSampleReportRecords();if(!records.length){msg('sampleMessage','No records for selected employee.',true);return;}
+  const name=$('sampleReportEmployee').value==='all'?'All Employees':sampleNames.get($('sampleReportEmployee').value)||'Employee';
+  const headings=sampleReportColumns.map(c=>'<th>'+sampleReportCell(c[0])+'</th>').join('');
+  const rows=records.map(x=>'<tr>'+sampleReportColumns.map(c=>'<td>'+sampleReportCell(c[1](x))+'</td>').join('')+'</tr>').join('');
+  const html='<!doctype html><html><head><meta charset="utf-8"><title>Daily Kharcha Samples Report</title><style>body{font:12px Arial,sans-serif;padding:16px;color:#222}table{border-collapse:collapse;width:100%}th,td{border:1px solid #aaa;padding:5px;text-align:left;overflow-wrap:anywhere}th{background:#eee}h2{margin-bottom:4px}.toolbar{margin:12px 0}.toolbar button{padding:9px 16px;cursor:pointer}@page{size:A4 landscape;margin:10mm}@media print{.toolbar{display:none}body{padding:0}}</style></head><body><h2>Daily Kharcha - Employee-wise Samples Report</h2><p>Employee: '+sampleReportCell(name)+' | Date: '+new Date().toLocaleDateString('en-IN')+' | Records: '+records.length+'</p><div class="toolbar"><button onclick="window.print()">Print / Save as PDF</button> <span>Open this downloaded file first, then print.</span></div><table><thead><tr>'+headings+'</tr></thead><tbody>'+rows+'</tbody></table></body></html>';
+  downloadSampleFile(html,'text/html;charset=utf-8','Daily-Kharcha-Samples-Report-'+new Date().toISOString().slice(0,10)+'.html');
+  msg('sampleMessage','Report download started. Open the downloaded HTML file, then click Print / Save as PDF. The Daily Kharcha website stays open.');
  }catch(e){msg('sampleMessage','Report download failed: '+friendlyError(e),true);}finally{btn.disabled=false;}
 };
 $('sampleReportPrint').onclick=async()=>{
- if(!sampleCanReport())return;
- const win=window.open('','_blank');if(!win){msg('sampleMessage','Please allow pop-ups to print report.',true);return;}
- win.document.write('<p>Preparing Sample Report...</p>');
+ const btn=$('sampleReportPrint');btn.disabled=true;
  try{
-  const records=await getSampleReportRecords(),cell=v=>esc(String(v??'—'));
-  const rows=records.map(x=>'<tr>'+sampleReportColumns.map(c=>'<td>'+cell(c[1](x))+'</td>').join('')+'</tr>').join('');
-  const name=$('sampleReportEmployee').value==='all'?'All Employees':sampleNames.get($('sampleReportEmployee').value)||'Employee';
-  win.document.open();win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Samples Report</title><style>body{font:12px Arial;padding:16px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #aaa;padding:5px;text-align:left}th{background:#eee}h2{margin-bottom:4px}@page{size:A4 landscape;margin:10mm}</style></head><body><h2>Daily Kharcha – Employee-wise Samples Report</h2><p>Employee: '+cell(name)+' | Date: '+new Date().toLocaleDateString()+' | Records: '+records.length+'</p><table><thead><tr>'+sampleReportColumns.map(c=>'<th>'+cell(c[0])+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></body></html>');win.document.close();win.focus();win.print();
- }catch(e){win.close();msg('sampleMessage','Report print failed: '+friendlyError(e),true);}
+  const records=await getSampleReportRecords();if(!records.length){msg('sampleMessage','No records for selected employee.',true);return;}
+  const csvCell=v=>{const value=String(v??'');const safe=/^[=+@\\-\\t\\r]/.test(value)?"'"+value:value;return '"'+safe.replace(/"/g,'""')+'"';};
+  const csv='\\uFEFF'+[sampleReportColumns.map(c=>csvCell(c[0])).join(','),...records.map(x=>sampleReportColumns.map(c=>csvCell(c[1](x))).join(','))].join('\\r\\n');
+  downloadSampleFile(csv,'text/csv;charset=utf-8','Daily-Kharcha-Samples-'+new Date().toISOString().slice(0,10)+'.csv');
+  msg('sampleMessage','Excel CSV download started.');
+ }catch(e){msg('sampleMessage','CSV download failed: '+friendlyError(e),true);}finally{btn.disabled=false;}
 };
 $('sampleFilter').onchange=renderSamples;
 $('sampleRefresh').onclick=()=>loadSamples();
