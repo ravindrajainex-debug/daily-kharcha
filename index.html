@@ -156,6 +156,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="row no-print" style="margin:12px 0"><button class="btn light" type="button" id="ordersRefresh">Refresh Orders</button><select id="ordersFilter"><option value="all">All Orders</option><option value="received">Received</option><option value="processing">Processing</option><option value="dispatched">Dispatched</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select></div>
 <div id="employeeIncentive" class="panel hidden"><h4>My Incentive Estimate</h4><p id="employeeIncentiveValue">Loading...</p><p class="muted">Estimated only; not approved or payable until company approval.</p></div>
 <div id="employeeCumulativeSales" class="panel hidden"><h4>My Cumulative Sales (Without GST)</h4><div class="row"><label>Month <input type="month" id="employeeSalesMonth"></label><label>Year <input type="number" id="employeeSalesYear" min="2020" max="2100" style="width:100px"></label></div><p id="employeeCumulativeValue" role="status">Loading...</p><p class="muted">Accepted orders only. GST excluded.</p></div>
+<div id="ordersIncentiveVisibility" class="panel hidden"><h4>Employee Incentive Visibility (Owner / Admin / HR)</h4><div class="row"><label>Employee <select id="incentiveVisibilityEmployee"></select></label><label><input type="checkbox" id="incentiveVisibilityAllowed"> Allow employee to see incentive</label><button type="button" class="btn light" id="incentiveVisibilitySave">Save Visibility</button></div><p id="incentiveVisibilityMessage" role="status"></p></div>
 <div id="ordersIncentiveAdmin" class="panel hidden"><h4>Employee Incentive Rates (Owner / Admin)</h4><div class="row"><label>Employee <select id="incentiveEmployee"></select></label><label>Incentive % <input type="number" id="incentiveRate" min="0" max="100" step="0.01" style="width:110px"></label><label>Manual Monthly Incentive Amount (₹, optional) <input type="number" id="incentiveFixedAmount" min="0" step="0.01" placeholder="Leave blank for %" style="width:170px"></label><button type="button" class="btn light" id="incentiveSave">Save Rate</button></div><p id="incentiveMessage" role="status"></p></div>
 <div id="ordersReports" class="panel hidden"><h4>Employee-wise Orders Report (Owner / Admin)</h4><div class="row"><label for="orderReportEmployee">Employee</label><select id="orderReportEmployee"><option value="all">All Employees</option></select><button type="button" class="btn light" id="orderReportCsv">Download Excel CSV</button><button type="button" class="btn light" id="orderReportHtml">Download A4 Landscape Report</button></div><div class="row"><label>Month <input type="month" id="orderSalesMonth"></label><label>Year <input type="number" id="orderSalesYear" min="2020" max="2100" style="width:100px"></label></div><p id="orderCumulativeSales" class="note" role="status">Cumulative Sales (Without GST): Loading...</p><p id="orderReportMessage" role="status"></p></div>
 <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Client</th><th>Product</th><th>Code</th><th>Qty</th><th>Per Piece (₹)</th><th>GST</th><th>Total (₹)</th><th>PO Number</th><th>Order Date</th><th>Delivery</th><th>Approval</th><th>Delivery Status</th><th>Last Updated</th><th>Delivery Remarks</th><th>PO</th><th>Action</th></tr></thead><tbody id="ordersRows"></tbody></table></div></section>
@@ -499,27 +500,50 @@ for(const id of ['employeeSalesMonth','employeeSalesYear'])$(id).addEventListene
 for(const id of ['orderSalesMonth','orderSalesYear'])$(id).addEventListener('change',refreshOrderCumulativeSales);
 let incentiveRates=new Map();
 let incentiveFixedAmounts=new Map();
+let incentiveVisible=new Map();
+const incentiveCanToggle=()=>!!activeCompany&&membership?.status==='active'&&['company_owner','owner','company_admin','hr_admin'].includes(membership.role);
 async function refreshIncentiveRates(){
  const isAdmin=ordersCanReview();
  $('ordersIncentiveAdmin').classList.toggle('hidden',!isAdmin);
- $('employeeIncentive').classList.toggle('hidden',!ordersCanManage()||isAdmin);
+ $('ordersIncentiveVisibility').classList.toggle('hidden',!incentiveCanToggle());
+ $('employeeIncentive').classList.toggle('hidden',true);
  if(!ordersCanManage())return;
- const {data,error}=await client.from('employee_incentive_rates').select('employee_id,incentive_percent,fixed_monthly_amount').eq('company_id',activeCompany.id);
+ const {data,error}=await client.from('employee_incentive_rates').select('employee_id,incentive_percent,fixed_monthly_amount,employee_visible').eq('company_id',activeCompany.id);
  if(error){msg('incentiveMessage','Unable to load rates: '+friendlyError(error),true);return;}
  incentiveRates=new Map((data||[]).map(x=>[x.employee_id,Number(x.incentive_percent)]));
  incentiveFixedAmounts=new Map((data||[]).map(x=>[x.employee_id,x.fixed_monthly_amount]));
+ incentiveVisible=new Map((data||[]).map(x=>[x.employee_id,!!x.employee_visible]));
+ if(incentiveCanToggle()){
+ const sel=$('incentiveVisibilityEmployee'),old=sel.value;sel.innerHTML='';
+ for(const [id,name] of orderNames){const o=document.createElement('option');o.value=id;o.textContent=name;sel.appendChild(o);}
+ if([...sel.options].some(x=>x.value===old))sel.value=old;
+ $('incentiveVisibilityAllowed').checked=incentiveVisible.get(sel.value)===true;
+ }
  if(isAdmin){
  const sel=$('incentiveEmployee'),old=sel.value;sel.innerHTML='';
  for(const [id,name] of orderNames){const option=document.createElement('option');option.value=id;option.textContent=name;sel.appendChild(option);}
  if([...sel.options].some(x=>x.value===old))sel.value=old;
  $('incentiveRate').value=String(incentiveRates.get(sel.value)??0);
  $('incentiveFixedAmount').value=incentiveFixedAmounts.get(sel.value)??'';
- }else{
+ }else if(incentiveVisible.get(currentUser.id)===true){
+ $('employeeIncentive').classList.remove('hidden');
  const rate=incentiveRates.get(currentUser.id)??0;
  const fixed=incentiveFixedAmounts.get(currentUser.id);
  $('employeeIncentiveValue').textContent=fixed!=null?'Configured manual monthly incentive: ₹'+Number(fixed).toLocaleString('en-IN',{minimumFractionDigits:2})+' (subject to approval)':'Your configured incentive rate: '+rate+'% (subject to approval)';
  }
 }
+$('incentiveVisibilityEmployee').addEventListener('change',()=>{$('incentiveVisibilityAllowed').checked=incentiveVisible.get($('incentiveVisibilityEmployee').value)===true;});
+$('incentiveVisibilitySave').onclick=async()=>{
+ if(!incentiveCanToggle())return;
+ const employee=$('incentiveVisibilityEmployee').value,visible=$('incentiveVisibilityAllowed').checked;
+ if(!employee)return;
+ const btn=$('incentiveVisibilitySave');btn.disabled=true;
+ try{
+ const {error}=await client.rpc('set_employee_incentive_visibility',{p_company_id:activeCompany.id,p_employee_id:employee,p_visible:visible});
+ if(error)throw error;
+ incentiveVisible.set(employee,visible);msg('incentiveVisibilityMessage',visible?'Employee incentive visibility enabled.':'Employee incentive visibility disabled.');
+ }catch(e){msg('incentiveVisibilityMessage','Unable to save: '+friendlyError(e),true);}finally{btn.disabled=false;}
+};
 $('incentiveEmployee').addEventListener('change',()=>{$('incentiveRate').value=String(incentiveRates.get($('incentiveEmployee').value)??0);$('incentiveFixedAmount').value=incentiveFixedAmounts.get($('incentiveEmployee').value)??'';});
 $('incentiveSave').onclick=async()=>{
  if(!ordersCanReview())return;
