@@ -738,10 +738,12 @@ async function loadSamples(){
   sampleRecords=q.data||[];
   const ids=new Set(sampleRecords.map(x=>x.employee_id));
   const select=$('sampleEmployee');select.innerHTML='<option value="">Select employee</option>';
+  let activeSampleMemberIds=[];
   if(canManage){
    const m=await client.from('company_memberships').select('user_id,status').eq('company_id',activeCompany.id);
    if(m.error)throw m.error;
-   (m.data||[]).filter(x=>x.status==='active').forEach(x=>ids.add(x.user_id));
+   activeSampleMemberIds=(m.data||[]).filter(x=>x.status==='active').map(x=>x.user_id);
+   activeSampleMemberIds.forEach(id=>ids.add(id));
   }
   if(ids.size){
    const p=await client.rpc('sample_company_employee_names',{p_company_id:activeCompany.id});
@@ -749,9 +751,7 @@ async function loadSamples(){
    sampleNames=new Map((p.data||[]).map(x=>[x.id,x.full_name||'Employee']));
   }
   if(canManage){
-   const m=await client.from('company_memberships').select('user_id,status').eq('company_id',activeCompany.id);
-   if(m.error)throw m.error;
-   (m.data||[]).filter(x=>x.status==='active').forEach(x=>{const o=document.createElement('option');o.value=x.user_id;o.textContent=sampleNames.get(x.user_id)||'Employee';select.appendChild(o);});
+   activeSampleMemberIds.forEach(id=>{const o=document.createElement('option');o.value=id;o.textContent=sampleNames.get(id)||'Employee';select.appendChild(o);});
   }else{const o=document.createElement('option');o.value=currentUser.id;o.textContent=sampleNames.get(currentUser.id)||'Myself';select.appendChild(o);select.value=currentUser.id;select.disabled=true;}
   $('sampleReportPanel').classList.toggle('hidden',!sampleCanReport());const reportSelect=$('sampleReportEmployee');const previous=reportSelect.value;reportSelect.innerHTML='<option value="all">All Employees</option>';if(sampleCanReport())for(const [id,name] of [...sampleNames.entries()].sort((a,b)=>a[1].localeCompare(b[1]))){const option=document.createElement('option');option.value=id;option.textContent=name;reportSelect.appendChild(option);}if([...reportSelect.options].some(o=>o.value===previous)&&previous!=='all')reportSelect.value=previous;else{const firstRecord=sampleRecords.find(x=>[...reportSelect.options].some(o=>o.value===x.employee_id));if(firstRecord)reportSelect.value=firstRecord.employee_id;}
   renderSamples();msg('sampleMessage',sampleRecords.length+' sample record(s) loaded.');
