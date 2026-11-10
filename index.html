@@ -597,7 +597,7 @@ function refreshEmployeeIncentiveDetails(records){
  const rate=Number(incentiveRates.get(currentUser.id)||0),fixed=incentiveFixedAmounts.get(currentUser.id);
  const grouped=new Map();
  for(const record of records){
-  const month=(record.order_date||'').slice(0,7);if(!/^\\d{4}-\\d{2}$/.test(month))continue;
+  const month=(record.order_date||'').slice(0,7);if(!/^\d{4}-\d{2}$/.test(month))continue;
   grouped.set(month,(grouped.get(month)||0)+orderBasicAmount(record));
  }
  const money=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
