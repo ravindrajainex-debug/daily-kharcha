@@ -733,7 +733,7 @@ async function loadSamples(){
  if(!activeCompany||!membership){msg('sampleMessage','An approved company is required.');return;}
  msg('sampleMessage','Loading samples...');
  try{
-  const q=await client.from('employee_sample_issues').select('id,employee_id,sample_name,item_code,quantity,issue_date,expected_return_date,returned_at,approval_status,notes,submitted_department,submitted_person,submitted_company_name,image_path').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(250);
+  const q=await client.from('employee_sample_issues').select('id,employee_id,sample_name,item_code,quantity,issue_date,expected_return_date,returned_at,approval_status,notes,submitted_department,submitted_person,submitted_company_name,image_path,return_requested_at').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(250);
   if(q.error)throw q.error;
   sampleRecords=q.data||[];
   const ids=new Set(sampleRecords.map(x=>x.employee_id));
@@ -763,8 +763,9 @@ function renderSamples(){
  $('sampleRows').innerHTML=items.length?items.map(x=>{
   let actions='';
   if(canManage&&x.approval_status==='pending')actions+='<button type="button" class="btn light" data-sample-action="approved" data-id="'+esc(x.id)+'">Approve</button> <button type="button" class="btn danger" data-sample-action="rejected" data-id="'+esc(x.id)+'">Reject</button> ';
-  if(canManage&&!x.returned_at&&x.approval_status==='approved')actions+='<button type="button" class="btn light" data-sample-action="return" data-id="'+esc(x.id)+'">Returned ✓</button>';
-  return '<tr><td>'+esc(sampleNames.get(x.employee_id)||'Employee')+'</td><td>'+esc(x.sample_name)+'</td><td>'+(x.image_path?'<button type="button" class="btn light" data-sample-image="'+esc(x.id)+'">View Photo</button>':'—')+'</td><td>'+esc(x.submitted_company_name||'—')+'</td><td>'+esc(x.submitted_department||'—')+'</td><td>'+esc(x.submitted_person||'—')+'</td><td>'+esc(x.item_code||'—')+'</td><td>'+esc(x.quantity)+'</td><td>'+esc(x.issue_date)+'</td><td>'+esc(x.expected_return_date||'—')+'</td><td>'+esc(x.approval_status)+'</td><td>'+esc(x.returned_at?'Returned ✓ ('+x.returned_at+')':'Not Returned')+'</td><td class="actions">'+actions+'</td></tr>';
+  if(!canManage&&!x.returned_at&&x.approval_status==='approved'&&!x.return_requested_at)actions+='<button type="button" class="btn light" data-sample-action="request-return" data-id="'+esc(x.id)+'">Request Return</button>';
+  if(canManage&&!x.returned_at&&x.approval_status==='approved'&&x.return_requested_at)actions+='<button type="button" class="btn light" data-sample-action="confirm-return" data-id="'+esc(x.id)+'">Confirm Return</button>';
+  return '<tr><td>'+esc(sampleNames.get(x.employee_id)||'Employee')+'</td><td>'+esc(x.sample_name)+'</td><td>'+(x.image_path?'<button type="button" class="btn light" data-sample-image="'+esc(x.id)+'">View Photo</button>':'—')+'</td><td>'+esc(x.submitted_company_name||'—')+'</td><td>'+esc(x.submitted_department||'—')+'</td><td>'+esc(x.submitted_person||'—')+'</td><td>'+esc(x.item_code||'—')+'</td><td>'+esc(x.quantity)+'</td><td>'+esc(x.issue_date)+'</td><td>'+esc(x.expected_return_date||'—')+'</td><td>'+esc(x.approval_status)+'</td><td>'+esc(x.returned_at?'Returned ✓ ('+x.returned_at+')':x.return_requested_at?'Return Pending Confirmation':'Not Returned')+'</td><td class="actions">'+actions+'</td></tr>';
  }).join(''):'<tr><td colspan="13" class="empty">No sample records found.</td></tr>';
 }
 const sampleReportColumns=[['Employee',x=>sampleNames.get(x.employee_id)||'Employee'],['Product Name',x=>x.sample_name],['Client Name',x=>x.submitted_company_name],['Department',x=>x.submitted_department],['Person Name',x=>x.submitted_person],['Serial Code',x=>x.item_code],['Quantity',x=>x.quantity],['Issue Date',x=>x.issue_date],['Expected Return',x=>x.expected_return_date],['Approval',x=>x.approval_status],['Return Status',x=>x.returned_at?'Returned':'Not Returned'],['Return Date',x=>x.returned_at]];
@@ -823,21 +824,24 @@ $('sampleForm').onsubmit=async e=>{
  }catch(err){msg('sampleMessage','Unable to issue sample: '+friendlyError(err),true);}finally{btn.disabled=false;}
 };
 $('sampleRows').onclick=async e=>{
- const imageButton=e.target.closest('button[data-sample-image]');if(imageButton){const rec=sampleRecords.find(x=>x.id===imageButton.dataset.sampleImage);if(!rec?.image_path)return;imageButton.disabled=true;try{const {data,error}=await client.storage.from('sample-images').createSignedUrl(rec.image_path,60);if(error)throw error;window.open(data.signedUrl,'_blank','noopener,noreferrer');}catch(err){msg('sampleMessage','Unable to open photo: '+friendlyError(err),true);}finally{imageButton.disabled=false;}return;}const b=e.target.closest('button[data-sample-action]');if(!b||!sampleCanManage())return;
+ const imageButton=e.target.closest('button[data-sample-image]');if(imageButton){const rec=sampleRecords.find(x=>x.id===imageButton.dataset.sampleImage);if(!rec?.image_path)return;imageButton.disabled=true;try{const {data,error}=await client.storage.from('sample-images').createSignedUrl(rec.image_path,60);if(error)throw error;window.open(data.signedUrl,'_blank','noopener,noreferrer');}catch(err){msg('sampleMessage','Unable to open photo: '+friendlyError(err),true);}finally{imageButton.disabled=false;}return;}const b=e.target.closest('button[data-sample-action]');if(!b)return;
  const rec=sampleRecords.find(x=>x.id===b.dataset.id);if(!rec)return;
- const action=b.dataset.sampleAction;
- if(action==='return'&&(rec.returned_at||rec.approval_status!=='approved'))return;
- if(['approved','rejected'].includes(action)&&rec.approval_status!=='pending')return;
- if(!confirm(action==='return'?'Confirm this sample has physically been returned?':'Confirm sample '+action+'?'))return;
+ const action=b.dataset.sampleAction,canManage=sampleCanManage();
+ if(action==='request-return'&&(canManage||rec.employee_id!==currentUser.id||rec.approval_status!=='approved'||rec.returned_at||rec.return_requested_at))return;
+ if(action==='confirm-return'&&(!canManage||rec.approval_status!=='approved'||rec.returned_at||!rec.return_requested_at))return;
+ if(['approved','rejected'].includes(action)&&(!canManage||rec.approval_status!=='pending'))return;
+ if(!confirm(action==='request-return'?'Request return confirmation from your company owner?':action==='confirm-return'?'Confirm this sample has physically been received?':'Confirm sample '+action+'?'))return;
  b.disabled=true;
  try{
-  const patch=action==='return'?{returned_at:new Date().toISOString().slice(0,10)}:{approval_status:action,approved_by:currentUser.id,approved_at:new Date().toISOString()};
-  let q=client.from('employee_sample_issues').update(patch).eq('id',rec.id).eq('company_id',activeCompany.id);
-  q=action==='return'?q.is('returned_at',null).eq('approval_status','approved'):q.eq('approval_status','pending');
-  const {data,error}=await q.select('id');
-  if(error)throw error;if(!data?.length)throw Error('Record was already changed. Refresh and retry.');
-  await loadSamples();msg('sampleMessage',action==='return'?'Sample returned successfully.':'Sample '+action+' successfully.');
+  if(action==='request-return'||action==='confirm-return'){
+   const {error}=await client.rpc(action==='request-return'?'request_sample_return':'confirm_sample_return',{p_sample_id:rec.id});if(error)throw error;
+  }else{
+   const {data,error}=await client.from('employee_sample_issues').update({approval_status:action,approved_by:currentUser.id,approved_at:new Date().toISOString()}).eq('id',rec.id).eq('company_id',activeCompany.id).eq('approval_status','pending').select('id');
+   if(error)throw error;if(!data?.length)throw Error('Record already changed. Refresh and retry.');
+  }
+  await loadSamples();msg('sampleMessage',action==='request-return'?'Return request sent to Owner / Manager.':action==='confirm-return'?'Sample return confirmed.':'Sample '+action+' successfully.');
  }catch(err){msg('sampleMessage','Unable to update sample: '+friendlyError(err),true);}finally{b.disabled=false;}
+
 };
 function showTab(tab){activeTab=tab;['company','expenses','attendance','salary','accessories','samples','orders','about','profile','admin'].forEach(t=>{const section=t==='admin'?'adminTabPanel':t+'Tab';const el=$(section);if(el)el.classList.toggle('hidden',t!==tab);});document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{const tab=b.dataset.tab;showTab(tab);if(tab==='accessories'){Promise.resolve().then(()=>loadAccessories()).catch(()=>showRuntimeNotice('Accessories could not load.'));}if(tab==='samples'){Promise.resolve().then(()=>loadSamples()).catch(()=>showRuntimeNotice('Samples could not load.'));}if(tab==='orders'){Promise.resolve().then(()=>loadOrders()).catch(()=>showRuntimeNotice('Orders could not load.'));}if(tab==='company'){Promise.allSettled([loadCompanyMembers(),loadInvitationRequests()]).then(results=>{if(results.some(r=>r.status==='rejected'))showRuntimeNotice('Company data could not load. Try opening this tab again.');});}if(tab==='admin'&&isAdmin){Promise.resolve().then(()=>loadApplications()).catch(()=>showRuntimeNotice('Admin data could not load. Try opening this tab again.'));}});
