@@ -139,7 +139,12 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="field"><label>Product Name *</label><input id="orderProduct" required maxlength="200"></div>
 <div class="field"><label>Product Code</label><input id="orderCode" maxlength="100"></div>
 <div class="field"><label>Quantity *</label><input id="orderQty" type="number" min="1" value="1" required></div>
-<div class="field"><label>Order Value (₹)</label><input id="orderValue" type="number" min="0" step="0.01"></div>
+<div class="field"><label>Per Piece Price (₹) *</label><input id="orderUnitPrice" type="number" min="0" step="0.01" required></div>
+<div class="field"><label>GST Type *</label><select id="orderGstMode"><option value="extra">GST Extra</option><option value="inclusive">GST Inclusive</option></select></div>
+<div class="field"><label>GST Rate *</label><select id="orderGstRate"><option value="5">5%</option><option value="12">12%</option><option value="18" selected>18%</option><option value="28">28%</option></select></div>
+<div class="field"><label>Taxable Amount (₹)</label><output id="orderTaxable">₹0.00</output></div>
+<div class="field"><label>GST Amount (₹)</label><output id="orderGstAmount">₹0.00</output></div>
+<div class="field"><label>Total Order Value (₹)</label><output id="orderValue">₹0.00</output></div>
 <div class="field"><label>PO Number</label><input id="orderPoNumber" maxlength="120"></div>
 <div class="field"><label>Order Date *</label><input id="orderDate" type="date" required></div>
 <div class="field"><label>Expected Delivery</label><input id="orderDue" type="date"></div>
@@ -149,7 +154,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="full"><button class="btn" type="submit" id="orderSave">Save Order</button></div>
 </form></div><p id="ordersMessage" role="status"></p>
 <div class="row no-print" style="margin:12px 0"><button class="btn light" type="button" id="ordersRefresh">Refresh Orders</button><select id="ordersFilter"><option value="all">All Orders</option><option value="received">Received</option><option value="processing">Processing</option><option value="dispatched">Dispatched</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select></div>
-<div class="table-wrap"><table><thead><tr><th>Employee</th><th>Client</th><th>Product</th><th>Code</th><th>Qty</th><th>Value (₹)</th><th>PO Number</th><th>Order Date</th><th>Delivery</th><th>Approval</th><th>Status</th><th>PO</th><th>Action</th></tr></thead><tbody id="ordersRows"></tbody></table></div></section>
+<div class="table-wrap"><table><thead><tr><th>Employee</th><th>Client</th><th>Product</th><th>Code</th><th>Qty</th><th>Per Piece (₹)</th><th>GST</th><th>Total (₹)</th><th>PO Number</th><th>Order Date</th><th>Delivery</th><th>Approval</th><th>Status</th><th>PO</th><th>Action</th></tr></thead><tbody id="ordersRows"></tbody></table></div></section>
  <section id="aboutTab" class="panel hidden"><h3>About Us</h3><p class="muted">Daily Kharcha information, updates and customer support</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
  <section id="profileTab" class="panel hidden"><h3>My profile</h3><form id="profileForm" class="grid"><div class="field"><label>Full name</label><input id="profileName"></div><div class="field"><label>Mobile</label><input id="profileMobile"></div><div class="field"><label>Designation</label><input id="profileDesignation"></div><div class="field"><label>Language</label><select id="profileLanguage"><option value="en">English</option><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="gu">Gujarati</option><option value="kn">Kannada</option><option value="ur">Urdu</option></select></div><div class="full"><button class="btn" type="submit">Save profile</button><span id="profileMessage" class="muted"></span></div></form><p class="note" id="profileEmail"></p></section>
  <section id="adminTabPanel" class="panel hidden"><h3>Owner Admin – Daily Kharcha</h3><p class="muted">Platform overview and company signup requests.</p><div class="stats"><div class="stat"><small>Registered users</small><strong id="adminUserCount">—</strong></div><div class="stat"><small>Company applications</small><strong id="adminCompanyCount">—</strong></div><div class="stat"><small>Expense entries</small><strong id="adminExpenseCount">—</strong></div></div><div class="row between" style="margin:18px 0 10px;gap:12px"><h3 style="margin:0">User Management</h3><input id="adminUserSearch" type="search" placeholder="Search name, mobile, designation or user ID" aria-label="Search registered users" style="max-width:360px;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px"></div><p class="muted small">Manage account access. Suspended accounts cannot use company features. Existing records are retained.</p><div class="table-wrap"><table><thead><tr><th>Name</th><th>Mobile</th><th>Designation</th><th>Company</th><th>Account</th><th>Access</th><th>User ID</th><th>Joined</th><th>Action</th></tr></thead><tbody id="adminUsersRows"></tbody></table><div id="adminUsersEmpty" class="empty">No matching user profiles found.</div></div><hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h3>Company applications</h3><p class="muted">Approving an application activates its owner membership.</p><p id="adminMessage" class="muted"></p><div class="table-wrap"><table><thead><tr><th>Company</th><th>Contact</th><th>Email</th><th>Mobile</th><th>Status</th><th>Action</th></tr></thead><tbody id="applicationsRows"></tbody></table><div id="applicationsEmpty" class="empty">No company applications found.</div></div></section>
@@ -407,6 +412,17 @@ $('accessoryRows').onclick=async e=>{
 
 
 
+function calculateOrderTotals(){
+ const qty=Number($('orderQty').value)||0,unit=Number($('orderUnitPrice').value)||0,rate=Number($('orderGstRate').value)||0;
+ const base=qty*unit, inclusive=$('orderGstMode').value==='inclusive';
+ const taxable=inclusive?base/(1+rate/100):base, gst=inclusive?base-taxable:taxable*rate/100;
+ const total=Math.round((taxable+gst+Number.EPSILON)*100)/100;
+ const fmt=n=>'₹'+n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+ $('orderTaxable').textContent=fmt(taxable);$('orderGstAmount').textContent=fmt(gst);$('orderValue').textContent=fmt(total);
+ return {total,taxable,gst};
+}
+['orderQty','orderUnitPrice','orderGstRate','orderGstMode'].forEach(id=>$(id).addEventListener('input',calculateOrderTotals));
+calculateOrderTotals();
 let orderRecords=[],orderNames=new Map();
 const ordersCanManage=()=>!!activeCompany&&membership?.status==='active';
 const ordersCanReview=()=>!!activeCompany&&membership?.status==='active'&&['company_owner','owner','company_admin'].includes(membership.role);
@@ -417,7 +433,7 @@ async function loadOrders(){
  if(!activeCompany||!membership){msg('ordersMessage','Approved company required.',true);return;}
  msg('ordersMessage','Loading orders...');
  try{
-  const q=await client.from('company_orders_received').select('id,employee_id,client_name,product_name,product_code,quantity,order_value,po_number,order_date,expected_delivery,order_status,po_file_path,approval_status,rejection_reason').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(250);
+  const q=await client.from('company_orders_received').select('id,employee_id,client_name,product_name,product_code,quantity,order_value,po_number,order_date,expected_delivery,order_status,po_file_path,approval_status,rejection_reason,unit_price,gst_mode,gst_rate').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(250);
   if(q.error)throw q.error;orderRecords=q.data||[];
   const p=await client.rpc('sample_company_employee_names',{p_company_id:activeCompany.id});if(p.error)throw p.error;
   orderNames=new Map((p.data||[]).map(x=>[x.id,x.full_name]));
@@ -433,22 +449,23 @@ function renderOrders(){
  const next=x.order_status==='received'?['processing','cancelled']:x.order_status==='processing'?['dispatched','cancelled']:x.order_status==='dispatched'?['delivered']:[];
  const options='<option value="">Update Status</option>'+next.map(v=>'<option value="'+v+'">'+v[0].toUpperCase()+v.slice(1)+'</option>').join('');
  const action=x.approval_status==='pending'&&ordersCanReview()?'<button type="button" data-order-review="accepted" data-order-id="'+esc(x.id)+'">Accept</button> <button type="button" data-order-review="rejected" data-order-id="'+esc(x.id)+'">Reject</button>':x.approval_status==='accepted'&&ordersCanProgress()&&next.length?'<select data-order-status="'+esc(x.id)+'">'+options+'</select>':'—';
- return '<tr><td>'+esc(orderNames.get(x.employee_id)||'Employee')+'</td><td>'+esc(x.client_name)+'</td><td>'+esc(x.product_name)+'</td><td>'+esc(x.product_code||'—')+'</td><td>'+esc(x.quantity)+'</td><td>'+esc(x.order_value??'—')+'</td><td>'+esc(x.po_number||'—')+'</td><td>'+esc(x.order_date)+'</td><td>'+esc(x.expected_delivery||'—')+'</td><td>'+esc(x.approval_status)+(x.rejection_reason?' — '+esc(x.rejection_reason):'')+'</td><td>'+esc(x.order_status)+'</td><td>'+(x.po_file_path?'<button type="button" class="btn light" data-order-po="'+esc(x.id)+'">View PO</button>':'—')+'</td><td>'+action+'</td></tr>';
- }).join(''):'<tr><td colspan="13">No order records found.</td></tr>';
+ return '<tr><td>'+esc(orderNames.get(x.employee_id)||'Employee')+'</td><td>'+esc(x.client_name)+'</td><td>'+esc(x.product_name)+'</td><td>'+esc(x.product_code||'—')+'</td><td>'+esc(x.quantity)+'</td><td>'+esc(x.unit_price??'—')+'</td><td>'+esc(x.gst_rate!=null?(x.gst_rate+'% '+(x.gst_mode==='inclusive'?'Inclusive':'Extra')):'—')+'</td><td>'+esc(x.order_value??'—')+'</td><td>'+esc(x.po_number||'—')+'</td><td>'+esc(x.order_date)+'</td><td>'+esc(x.expected_delivery||'—')+'</td><td>'+esc(x.approval_status)+(x.rejection_reason?' — '+esc(x.rejection_reason):'')+'</td><td>'+esc(x.order_status)+'</td><td>'+(x.po_file_path?'<button type="button" class="btn light" data-order-po="'+esc(x.id)+'">View PO</button>':'—')+'</td><td>'+action+'</td></tr>';
+ }).join(''):'<tr><td colspan="15">No order records found.</td></tr>';
 }
 $('ordersRefresh').onclick=loadOrders;$('ordersFilter').onchange=renderOrders;
 $('ordersForm').onsubmit=async e=>{
  e.preventDefault();if(!ordersCanManage())return;
  const btn=$('orderSave'),file=$('orderFile').files[0],date=$('orderDate').value,due=$('orderDue').value||null;
+ const totals=calculateOrderTotals();
  if(due&&due<date){msg('ordersMessage','Expected delivery cannot be before order date.',true);return;}
  if(file&&(!['application/pdf','image/jpeg','image/png','image/webp'].includes(file.type)||file.size>10485760)){msg('ordersMessage','Choose PDF or image up to 10 MB.',true);return;}
  btn.disabled=true;
  try{
   let po_file_path=null;
   if(file){const ext=file.type==='application/pdf'?'pdf':file.type==='image/png'?'png':file.type==='image/webp'?'webp':'jpg';po_file_path=activeCompany.id+'/'+crypto.randomUUID()+'.'+ext;const upload=await client.storage.from('order-po-files').upload(po_file_path,file,{contentType:file.type,upsert:false});if(upload.error)throw upload.error;}
-  const payload={company_id:activeCompany.id,employee_id:$('orderEmployee').value,client_name:$('orderClient').value.trim(),product_name:$('orderProduct').value.trim(),product_code:$('orderCode').value.trim()||null,quantity:Number($('orderQty').value),order_value:$('orderValue').value?Number($('orderValue').value):null,po_number:$('orderPoNumber').value.trim()||null,order_date:date,expected_delivery:due,order_status:'received',approval_status:'pending',po_file_path,notes:$('orderNotes').value.trim()||null,created_by:currentUser.id};
+  const payload={company_id:activeCompany.id,employee_id:$('orderEmployee').value,client_name:$('orderClient').value.trim(),product_name:$('orderProduct').value.trim(),product_code:$('orderCode').value.trim()||null,quantity:Number($('orderQty').value),order_value:totals.total,unit_price:Number($('orderUnitPrice').value),gst_mode:$('orderGstMode').value,gst_rate:Number($('orderGstRate').value),po_number:$('orderPoNumber').value.trim()||null,order_date:date,expected_delivery:due,order_status:'received',approval_status:'pending',po_file_path,notes:$('orderNotes').value.trim()||null,created_by:currentUser.id};
   const {error}=await client.from('company_orders_received').insert(payload);if(error)throw error;
-  $('ordersForm').reset();$('orderDate').value=new Date().toISOString().slice(0,10);
+  $('ordersForm').reset();$('orderDate').value=new Date().toISOString().slice(0,10);calculateOrderTotals();
   await loadOrders();msg('ordersMessage','Order saved successfully.');
  }catch(e){msg('ordersMessage','Unable to save order: '+friendlyError(e),true);}finally{btn.disabled=false;}
 };
