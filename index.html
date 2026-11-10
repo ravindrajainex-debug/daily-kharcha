@@ -376,11 +376,13 @@ async function loadAccessories(){
  if(!activeCompany||!membership){msg('accessoryMessage','Select an approved company to view records.');return;}
  msg('accessoryMessage','Loading accessories...');
  try{
-  const q=await client.from('employee_accessory_issues').select('id,employee_id,accessory_name,item_code,quantity,issue_date,expected_return_date,returned_at,return_condition').eq('company_id',activeCompany.id).order('issue_date',{ascending:false}).limit(250);
-  if(q.error)throw q.error;
+  // Fetch independent accessory and membership records concurrently.
+  const [q,m]=await Promise.all([
+   client.from('employee_accessory_issues').select('id,employee_id,accessory_name,item_code,quantity,issue_date,expected_return_date,returned_at,return_condition').eq('company_id',activeCompany.id).order('issue_date',{ascending:false}).limit(250),
+   client.from('company_memberships').select('user_id,role,status').eq('company_id',activeCompany.id)
+  ]);
+  if(q.error||m.error)throw(q.error||m.error);
   accessoryRecords=q.data||[];
-  const m=await client.from('company_memberships').select('user_id,role,status').eq('company_id',activeCompany.id);
-  if(m.error)throw m.error;
   const active=(m.data||[]).filter(x=>x.status==='active'),ids=[...new Set([...active.map(x=>x.user_id),...accessoryRecords.map(x=>x.employee_id)])];
   if(ids.length){const p=await client.from('profiles').select('id,full_name').in('id',ids);if(p.error)throw p.error;accessoryNames=new Map((p.data||[]).map(x=>[x.id,x.full_name||'Employee']));}
   const select=$('accessoryEmployee');select.innerHTML='<option value="">Select employee</option>';
