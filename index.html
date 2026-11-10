@@ -154,8 +154,8 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="full"><button class="btn" type="submit" id="orderSave">Save Order</button></div>
 </form></div><p id="ordersMessage" role="status"></p>
 <div class="row no-print" style="margin:12px 0"><button class="btn light" type="button" id="ordersRefresh">Refresh Orders</button><select id="ordersFilter"><option value="all">All Orders</option><option value="received">Received</option><option value="processing">Processing</option><option value="dispatched">Dispatched</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select></div>
-<div id="employeeCumulativeSales" class="panel hidden"><h4>My Cumulative Sales (Without GST)</h4><p id="employeeCumulativeValue" role="status">Loading...</p><p class="muted">Accepted orders only. GST excluded.</p></div>
-<div id="ordersReports" class="panel hidden"><h4>Employee-wise Orders Report (Owner / Admin)</h4><div class="row"><label for="orderReportEmployee">Employee</label><select id="orderReportEmployee"><option value="all">All Employees</option></select><button type="button" class="btn light" id="orderReportCsv">Download Excel CSV</button><button type="button" class="btn light" id="orderReportHtml">Download A4 Landscape Report</button></div><p id="orderCumulativeSales" class="note" role="status">Cumulative Sales (Without GST): Loading...</p><p id="orderReportMessage" role="status"></p></div>
+<div id="employeeCumulativeSales" class="panel hidden"><h4>My Cumulative Sales (Without GST)</h4><div class="row"><label>Month <input type="month" id="employeeSalesMonth"></label><label>Year <input type="number" id="employeeSalesYear" min="2020" max="2100" style="width:100px"></label></div><p id="employeeCumulativeValue" role="status">Loading...</p><p class="muted">Accepted orders only. GST excluded.</p></div>
+<div id="ordersReports" class="panel hidden"><h4>Employee-wise Orders Report (Owner / Admin)</h4><div class="row"><label for="orderReportEmployee">Employee</label><select id="orderReportEmployee"><option value="all">All Employees</option></select><button type="button" class="btn light" id="orderReportCsv">Download Excel CSV</button><button type="button" class="btn light" id="orderReportHtml">Download A4 Landscape Report</button></div><div class="row"><label>Month <input type="month" id="orderSalesMonth"></label><label>Year <input type="number" id="orderSalesYear" min="2020" max="2100" style="width:100px"></label></div><p id="orderCumulativeSales" class="note" role="status">Cumulative Sales (Without GST): Loading...</p><p id="orderReportMessage" role="status"></p></div>
 <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Client</th><th>Product</th><th>Code</th><th>Qty</th><th>Per Piece (₹)</th><th>GST</th><th>Total (₹)</th><th>PO Number</th><th>Order Date</th><th>Delivery</th><th>Approval</th><th>Delivery Status</th><th>Last Updated</th><th>Delivery Remarks</th><th>PO</th><th>Action</th></tr></thead><tbody id="ordersRows"></tbody></table></div></section>
  <section id="aboutTab" class="panel hidden"><h3>About Us</h3><p class="muted">Daily Kharcha information, updates and customer support</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
  <section id="profileTab" class="panel hidden"><h3>My profile</h3><form id="profileForm" class="grid"><div class="field"><label>Full name</label><input id="profileName"></div><div class="field"><label>Mobile</label><input id="profileMobile"></div><div class="field"><label>Designation</label><input id="profileDesignation"></div><div class="field"><label>Language</label><select id="profileLanguage"><option value="en">English</option><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="gu">Gujarati</option><option value="kn">Kannada</option><option value="ur">Urdu</option></select></div><div class="full"><button class="btn" type="submit">Save profile</button><span id="profileMessage" class="muted"></span></div></form><p class="note" id="profileEmail"></p></section>
@@ -477,6 +477,24 @@ async function getOrderReportRecords(){
  const {data,error}=await q;if(error)throw error;records.push(...(data||[]));if(!data||data.length<500)break;
  }return records;
 }
+const salesToday=new Date();
+for(const prefix of ['employeeSales','orderSales']){
+ $(prefix+'Month').value=salesToday.getFullYear()+'-'+String(salesToday.getMonth()+1).padStart(2,'0');
+ $(prefix+'Year').value=String(salesToday.getFullYear());
+}
+const formatSales=records=>{
+ const sum=records.reduce((n,x)=>n+orderBasicAmount(x),0);
+ return '₹'+sum.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+' ('+records.length+' orders)';
+};
+function salesPeriodSummary(records,prefix){
+ const month=$(prefix+'Month').value,year=$(prefix+'Year').value;
+ const accepted=records.filter(x=>x.approval_status==='accepted');
+ const monthly=accepted.filter(x=>(x.order_date||'').slice(0,7)===month);
+ const yearly=accepted.filter(x=>(x.order_date||'').slice(0,4)===year);
+ return 'Monthly Sales ('+month+'): '+formatSales(monthly)+' | Yearly Sales ('+year+'): '+formatSales(yearly)+' | All-time Sales: '+formatSales(accepted);
+}
+for(const id of ['employeeSalesMonth','employeeSalesYear'])$(id).addEventListener('change',refreshEmployeeCumulativeSales);
+for(const id of ['orderSalesMonth','orderSalesYear'])$(id).addEventListener('change',refreshOrderCumulativeSales);
 let employeeCumulativeRequest=0;
 async function refreshEmployeeCumulativeSales(){
  const panel=$('employeeCumulativeSales'),show=ordersCanManage()&&!ordersCanReview();
@@ -484,17 +502,17 @@ async function refreshEmployeeCumulativeSales(){
  const token=++employeeCumulativeRequest,el=$('employeeCumulativeValue');
  el.textContent='Calculating...';
  try{
-  let total=0,count=0;
+  let records=[];
   for(let offset=0;offset<50000;offset+=500){
    const {data,error}=await client.from('company_orders_received')
-    .select('quantity,unit_price,gst_rate,gst_mode')
+    .select('quantity,unit_price,gst_rate,gst_mode,order_date,approval_status')
     .eq('company_id',activeCompany.id).eq('employee_id',currentUser.id)
     .eq('approval_status','accepted').range(offset,offset+499);
    if(error)throw error;
-   for(const x of data||[]){total+=orderBasicAmount(x);count++;}
+   records.push(...(data||[]));
    if(!data||data.length<500)break;
   }
-  if(token===employeeCumulativeRequest)el.textContent='₹'+total.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+' | '+count+' Accepted Orders';
+  if(token===employeeCumulativeRequest)el.textContent=salesPeriodSummary(records,'employeeSales');
  }catch(e){if(token===employeeCumulativeRequest)el.textContent='Unable to load sales: '+friendlyError(e);}
 }
 let orderCumulativeRequest=0;
@@ -505,9 +523,7 @@ async function refreshOrderCumulativeSales(){
  try{
   const records=await getOrderReportRecords();
   if(token!==orderCumulativeRequest)return;
-  const approved=records.filter(x=>x.approval_status==='accepted');
-  const basic=approved.reduce((sum,x)=>sum+orderBasicAmount(x),0);
-  el.textContent='Cumulative Sales (Without GST): ₹'+basic.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+' | '+approved.length+' Accepted Orders | '+($('orderReportEmployee').value==='all'?'All Employees':$('orderReportEmployee').selectedOptions[0].textContent)+' | Excludes pending and rejected orders';
+  el.textContent=salesPeriodSummary(records,'orderSales')+' | '+($('orderReportEmployee').value==='all'?'All Employees':$('orderReportEmployee').selectedOptions[0].textContent)+' | GST excluded; accepted orders only';
  }catch(e){if(token===orderCumulativeRequest)el.textContent='Unable to load cumulative sales: '+friendlyError(e);}
 }
 $('orderReportEmployee').addEventListener('change',refreshOrderCumulativeSales);
