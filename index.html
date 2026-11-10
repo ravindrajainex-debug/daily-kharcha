@@ -532,6 +532,8 @@ async function refreshIncentiveRates(){
  const rate=incentiveRates.get(currentUser.id)??0;
  const fixed=incentiveFixedAmounts.get(currentUser.id);
  $('employeeIncentiveValue').textContent=fixed!=null?'Configured manual monthly incentive: ₹'+Number(fixed).toLocaleString('en-IN',{minimumFractionDigits:2})+' (subject to approval)':'Your configured incentive rate: '+rate+'% (subject to approval)';
+ }else{
+ console.info('Incentive hidden: no visible incentive setting for signed-in employee');
  }
 }
 }
@@ -544,7 +546,11 @@ $('incentiveVisibilitySave').onclick=async()=>{
  try{
  const {error}=await client.rpc('set_employee_incentive_visibility',{p_company_id:activeCompany.id,p_employee_id:employee,p_visible:visible});
  if(error)throw error;
- incentiveVisible.set(employee,visible);msg('incentiveVisibilityMessage',visible?'Employee incentive visibility enabled.':'Employee incentive visibility disabled.');
+ const verify=await client.from('employee_incentive_rates').select('employee_visible').eq('company_id',activeCompany.id).eq('employee_id',employee).maybeSingle();
+ if(verify.error)throw verify.error;
+ if(verify.data?.employee_visible!==visible)throw new Error('Visibility could not be verified. Please retry.');
+ incentiveVisible.set(employee,visible);msg('incentiveVisibilityMessage',(orderNames.get(employee)||'Selected employee')+': '+(visible?'Incentive visibility enabled and verified.':'Incentive visibility disabled and verified.'));
+
  }catch(e){msg('incentiveVisibilityMessage','Unable to save: '+friendlyError(e),true);}finally{btn.disabled=false;}
 };
 $('incentiveEmployee').addEventListener('change',()=>{$('incentiveRate').value=String(incentiveRates.get($('incentiveEmployee').value)??0);$('incentiveFixedAmount').value=incentiveFixedAmounts.get($('incentiveEmployee').value)??'';});
