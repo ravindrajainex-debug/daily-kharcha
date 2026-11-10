@@ -468,8 +468,8 @@ $('sampleReportPrint').onclick=async()=>{
  const btn=$('sampleReportPrint');btn.disabled=true;
  try{
   const records=await getSampleReportRecords();if(!records.length){msg('sampleMessage','No records for selected employee.',true);return;}
-  const csvCell=v=>{const value=String(v??'');const safe=/^[=+@\\-\\t\\r]/.test(value)?"'"+value:value;return '"'+safe.replace(/"/g,'""')+'"';};
-  const csv='\\uFEFF'+[sampleReportColumns.map(c=>csvCell(c[0])).join(','),...records.map(x=>sampleReportColumns.map(c=>csvCell(c[1](x))).join(','))].join('\\r\\n');
+  const csvCell=v=>{const value=String(v??'');const safe=/^[=+@\-\t\r]/.test(value)?"'"+value:value;return '"'+safe.replace(/"/g,'""')+'"';};
+  const csv='\uFEFF'+[sampleReportColumns.map(c=>csvCell(c[0])).join(','),...records.map(x=>sampleReportColumns.map(c=>csvCell(c[1](x))).join(','))].join('\r\n');
   downloadSampleFile(csv,'text/csv;charset=utf-8','Daily-Kharcha-Samples-'+new Date().toISOString().slice(0,10)+'.csv');
   msg('sampleMessage','Excel CSV download started.');
  }catch(e){msg('sampleMessage','CSV download failed: '+friendlyError(e),true);}finally{btn.disabled=false;}
