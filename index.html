@@ -154,6 +154,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="full"><button class="btn" type="submit" id="orderSave">Save Order</button></div>
 </form></div><p id="ordersMessage" role="status"></p>
 <div class="row no-print" style="margin:12px 0"><button class="btn light" type="button" id="ordersRefresh">Refresh Orders</button><select id="ordersFilter"><option value="all">All Orders</option><option value="received">Received</option><option value="processing">Processing</option><option value="dispatched">Dispatched</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select></div>
+<div id="ordersReports" class="panel hidden"><h4>Employee-wise Orders Report (Owner / Admin)</h4><div class="row"><label for="orderReportEmployee">Employee</label><select id="orderReportEmployee"><option value="all">All Employees</option></select><button type="button" class="btn light" id="orderReportCsv">Download Excel CSV</button><button type="button" class="btn light" id="orderReportHtml">Download A4 Landscape Report</button></div><p id="orderReportMessage" role="status"></p></div>
 <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Client</th><th>Product</th><th>Code</th><th>Qty</th><th>Per Piece (₹)</th><th>GST</th><th>Total (₹)</th><th>PO Number</th><th>Order Date</th><th>Delivery</th><th>Approval</th><th>Delivery Status</th><th>Last Updated</th><th>Delivery Remarks</th><th>PO</th><th>Action</th></tr></thead><tbody id="ordersRows"></tbody></table></div></section>
  <section id="aboutTab" class="panel hidden"><h3>About Us</h3><p class="muted">Daily Kharcha information, updates and customer support</p><p class="note">This module is under development. Data entry and reports will be enabled after secure company-level permissions and storage are implemented.</p></section>
  <section id="profileTab" class="panel hidden"><h3>My profile</h3><form id="profileForm" class="grid"><div class="field"><label>Full name</label><input id="profileName"></div><div class="field"><label>Mobile</label><input id="profileMobile"></div><div class="field"><label>Designation</label><input id="profileDesignation"></div><div class="field"><label>Language</label><select id="profileLanguage"><option value="en">English</option><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="gu">Gujarati</option><option value="kn">Kannada</option><option value="ur">Urdu</option></select></div><div class="full"><button class="btn" type="submit">Save profile</button><span id="profileMessage" class="muted"></span></div></form><p class="note" id="profileEmail"></p></section>
@@ -439,9 +440,62 @@ async function loadOrders(){
   orderNames=new Map((p.data||[]).map(x=>[x.id,x.full_name]));
   const sel=$('orderEmployee');sel.innerHTML='<option value="">Select Employee</option>';
   {const o=document.createElement('option');o.value=currentUser.id;o.textContent=orderNames.get(currentUser.id)||'My Order';sel.appendChild(o);sel.value=currentUser.id;}
-  renderOrders();msg('ordersMessage',orderRecords.length+' order record(s) loaded.');
+  renderOrders();populateOrderReportEmployees();msg('ordersMessage',orderRecords.length+' order record(s) loaded.');
  }catch(e){msg('ordersMessage','Unable to load orders: '+friendlyError(e),true);}
 }
+function populateOrderReportEmployees(){
+ const panel=$('ordersReports');panel.classList.toggle('hidden',!ordersCanReview());if(!ordersCanReview())return;
+ const sel=$('orderReportEmployee'),previous=sel.value;
+ sel.innerHTML='<option value="all">All Employees</option>';
+ for(const id of [...new Set(orderRecords.map(x=>x.employee_id))]){
+ const option=document.createElement('option');option.value=id;option.textContent=orderNames.get(id)||'Employee';sel.appendChild(option);
+ }
+ if([...sel.options].some(x=>x.value===previous))sel.value=previous;
+}
+const orderReportColumns=[
+ ['Employee',x=>orderNames.get(x.employee_id)||'Employee'],
+ ['Client',x=>x.client_name],['Product',x=>x.product_name],['Code',x=>x.product_code],
+ ['Qty',x=>x.quantity],['Per Piece (₹)',x=>x.unit_price],['GST Rate',x=>x.gst_rate==null?'—':x.gst_rate+'%'],['GST Type',x=>x.gst_mode],
+ ['Total (₹)',x=>x.order_value],['PO Number',x=>x.po_number],['Order Date',x=>x.order_date],
+ ['Expected Delivery',x=>x.expected_delivery],['Approval',x=>x.approval_status],
+ ['Delivery Status',x=>x.delivery_status],['Delivery Updated',x=>x.delivery_updated_at?new Date(x.delivery_updated_at).toLocaleString('en-IN'):'—'],
+ ['Delivery Remarks',x=>x.delivery_remarks],['Rejection Reason',x=>x.rejection_reason]
+];
+async function getOrderReportRecords(){
+ if(!ordersCanReview())throw Error('Owner / Admin access required.');
+ const employee=$('orderReportEmployee').value,records=[];
+ for(let offset=0;offset<50000;offset+=500){
+ let q=client.from('company_orders_received').select('employee_id,client_name,product_name,product_code,quantity,unit_price,gst_rate,gst_mode,order_value,po_number,order_date,expected_delivery,approval_status,delivery_status,delivery_updated_at,delivery_remarks,rejection_reason').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).range(offset,offset+499);
+ if(employee!=='all')q=q.eq('employee_id',employee);
+ const {data,error}=await q;if(error)throw error;records.push(...(data||[]));if(!data||data.length<500)break;
+ }return records;
+}
+function orderReportSummary(records){
+ return {qty:records.reduce((a,x)=>a+(Number(x.quantity)||0),0),value:records.reduce((a,x)=>a+(Number(x.order_value)||0),0)};
+}
+async function exportOrdersReport(format){
+ const btn=$(format==='csv'?'orderReportCsv':'orderReportHtml');btn.disabled=true;
+ try{
+ const records=await getOrderReportRecords();if(!records.length)throw Error('No orders for selected employee.');
+ const emp=$('orderReportEmployee').value==='all'?'All Employees':orderNames.get($('orderReportEmployee').value)||'Employee';
+ const summary=orderReportSummary(records),company=activeCompany?.name||'Company';
+ const date=new Date().toISOString().slice(0,10);
+ if(format==='csv'){
+ const safe=v=>{let x=String(v??'');if(/^[=+@\-\t\r]/.test(x))x="'"+x;return '"'+x.replace(/"/g,'""')+'"';};
+ const lines=[['Company',company],['Employee',emp],['Report Date',date],['Total Orders',records.length],['Total Qty',summary.qty],['Total Order Value',summary.value],[],orderReportColumns.map(x=>x[0]),...records.map(x=>orderReportColumns.map(c=>c[1](x)))];
+ downloadSampleFile('\uFEFF'+lines.map(row=>row.map(safe).join(',')).join('\r\n'),'text/csv;charset=utf-8','Daily-Kharcha-Orders-'+date+'.csv');
+ }else{
+ const escCell=sampleReportCell;
+ const heads=orderReportColumns.map(c=>'<th>'+escCell(c[0])+'</th>').join('');
+ const rows=records.map(x=>'<tr>'+orderReportColumns.map(c=>'<td>'+escCell(c[1](x))+'</td>').join('')+'</tr>').join('');
+ const html='<!doctype html><html><head><meta charset="utf-8"><title>Orders Report</title><style>body{font:12px Arial,sans-serif;padding:16px;color:#222}table{border-collapse:collapse;width:100%;table-layout:fixed}th,td{border:1px solid #aaa;padding:3px;text-align:left;overflow-wrap:anywhere;word-break:break-word}th{background:#eee}@page{size:297mm 210mm;margin:8mm}@media print{.toolbar{display:none}body{margin:0;padding:0}table{font-size:8px}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}}</style></head><body><h2>Daily Kharcha - Employee-wise Orders Report</h2><p><strong>Company:</strong> '+escCell(company)+' | <strong>Employee:</strong> '+escCell(emp)+' | <strong>Report Date:</strong> '+date+'</p><p><strong>Total Orders:</strong> '+records.length+' | <strong>Total Quantity:</strong> '+summary.qty+' | <strong>Total Order Value:</strong> ₹'+summary.value.toLocaleString('en-IN',{minimumFractionDigits:2})+'</p><div class="toolbar"><button onclick="window.print()">Print / Save as PDF (A4 Landscape)</button></div><table><thead><tr>'+heads+'</tr></thead><tbody>'+rows+'</tbody></table></body></html>';
+ downloadSampleFile(html,'text/html;charset=utf-8','Daily-Kharcha-Orders-'+date+'.html');
+ }
+ msg('orderReportMessage','Report downloaded. Open the file to view or print.');
+ }catch(e){msg('orderReportMessage','Report failed: '+friendlyError(e),true);}finally{btn.disabled=false;}
+}
+$('orderReportCsv').onclick=()=>exportOrdersReport('csv');
+$('orderReportHtml').onclick=()=>exportOrdersReport('html');
 function renderOrders(){
  const filter=$('ordersFilter').value;
  const records=orderRecords.filter(x=>filter==='all'||x.order_status===filter);
