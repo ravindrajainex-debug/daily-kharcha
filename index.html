@@ -465,7 +465,7 @@ async function loadOrders(){
   orderNames=new Map((p.data||[]).map(x=>[x.id,x.full_name]));
   const sel=$('orderEmployee');sel.innerHTML='<option value="">Select Employee</option>';
   {const o=document.createElement('option');o.value=currentUser.id;o.textContent=orderNames.get(currentUser.id)||'My Order';sel.appendChild(o);sel.value=currentUser.id;}
-  renderOrders();populateOrderReportEmployees();refreshEmployeeCumulativeSales();refreshIncentiveRates();msg('ordersMessage',orderRecords.length+' order record(s) loaded.');
+  renderOrders();populateOrderReportEmployees();await refreshIncentiveRates();refreshEmployeeCumulativeSales();msg('ordersMessage',orderRecords.length+' order record(s) loaded.');
  }catch(e){msg('ordersMessage','Unable to load orders: '+friendlyError(e),true);}
 }
 function populateOrderReportEmployees(){
