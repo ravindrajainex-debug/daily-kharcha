@@ -451,48 +451,57 @@ $('attendancePrintReport').onclick=async()=>{
    .gte('work_date',start).lte('work_date',end)
    .order('work_date',{ascending:true}).order('punch_in_at',{ascending:true});
   if(error)throw error;
-  if(!window.jspdf?.jsPDF){
-   await new Promise((resolve,reject)=>{
-    const script=document.createElement('script');
-    script.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js';
-    script.onload=resolve;script.onerror=()=>reject(new Error('PDF library could not load. Please check your internet connection.'));
-    document.head.appendChild(script);
-   });
-  }
-  const pdf=new window.jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  // Self-contained PDF generator: no CDN, external libraries or popup windows.
   const records=data||[],presentDays=new Set(records.filter(x=>x.punch_in_at).map(x=>x.work_date)).size;
   const completed=records.filter(x=>x.punch_out_at).length;
-  const clean=v=>String(v??'-').replace(/[^\x20-\x7e]/g,' ').trim()||'-';
-  const pageW=210,left=14,right=196;
-  let y=17,page=1;
-  const header=()=>{
-   pdf.setFont('helvetica','bold');pdf.setFontSize(17);pdf.text('Daily Kharcha - Monthly Attendance Report',left,18);
-   pdf.setDrawColor(195,215,203);pdf.line(left,22,right,22);
-   pdf.setFont('helvetica','normal');pdf.setFontSize(10);
-   pdf.text('Company: '+clean(activeCompany.company_name||activeCompany.name||'Company').slice(0,85),left,30);
-   pdf.text('Employee: '+clean(profile?.full_name||currentUser.email).slice(0,85),left,36);
-   pdf.text('Month: '+month+'     Generated: '+new Date().toLocaleDateString('en-IN'),left,42);
-   pdf.text('Records: '+records.length+'     Present days: '+presentDays+'     Completed punches: '+completed,left,49);
-   pdf.setFillColor(232,242,235);pdf.rect(left,55,right-left,9,'F');
-   pdf.setFont('helvetica','bold');pdf.text('Date',left+3,61);pdf.text('Punch In',left+40,61);pdf.text('Punch Out',left+87,61);pdf.text('Status',left+137,61);
-   pdf.setFont('helvetica','normal');y=70;
-  };
-  header();
-  for(const x of records){
-   if(y>267){pdf.setFontSize(9);pdf.text('Page '+page,180,286);pdf.addPage();page++;header();}
-   pdf.setFontSize(9);
-   pdf.text(clean(fmtDate(x.work_date)).slice(0,16),left+3,y);
-   pdf.text(clean(fmtTime(x.punch_in_at)).slice(0,24),left+40,y);
-   pdf.text(clean(fmtTime(x.punch_out_at)).slice(0,24),left+87,y);
-   pdf.text(x.punch_out_at?'Completed':'In progress',left+137,y);
-   pdf.setDrawColor(227,233,229);pdf.line(left,y+3,right,y+3);
-   y+=10;
+  const clean=v=>String(v??'-').normalize('NFKD').replace(/[^\x20-\x7e]/g,' ').trim()||'-';
+  const pdfEscape=v=>clean(v).replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');
+  const pages=[],maxRows=38;
+  for(let i=0;i<Math.max(records.length,1);i+=maxRows){
+   const group=records.slice(i,i+maxRows),lines=[];
+   const draw=(x,y,value,size=10,bold=false)=>{
+    lines.push('BT /'+(bold?'F2':'F1')+' '+size+' Tf 1 0 0 1 '+x+' '+y+' Tm ('+pdfEscape(value)+') Tj ET');
+   };
+   draw(40,798,'DAILY KHARCHA - MONTHLY ATTENDANCE REPORT',16,true);
+   draw(40,771,'Company: '+clean(activeCompany.company_name||activeCompany.name||'Company').slice(0,78));
+   draw(40,755,'Employee: '+clean(profile?.full_name||currentUser.email).slice(0,78));
+   draw(40,739,'Month: '+month+'     Generated: '+new Date().toLocaleDateString('en-IN'));
+   draw(40,723,'Records: '+records.length+'     Present days: '+presentDays+'     Completed punches: '+completed);
+   lines.push('0.75 0.83 0.78 RG 40 705 m 555 705 l S');
+   draw(44,688,'Date',10,true);draw(146,688,'Punch In',10,true);draw(280,688,'Punch Out',10,true);draw(426,688,'Status',10,true);
+   if(!group.length)draw(44,666,'No attendance punches for this month.');
+   group.forEach((x,j)=>{
+    const y=666-j*15;
+    draw(44,y,fmtDate(x.work_date),9);
+    draw(146,y,fmtTime(x.punch_in_at),9);
+    draw(280,y,fmtTime(x.punch_out_at),9);
+    draw(426,y,x.punch_out_at?'Completed':'In progress',9);
+   });
+   draw(40,38,'Saved attendance punches only; leave and holidays are excluded.',8);
+   draw(506,38,'Page '+(pages.length+1),8);
+   pages.push(lines.join('\n')+'\n');
   }
-  if(!records.length){pdf.setFontSize(10);pdf.text('No attendance punches for this month.',left+3,y);}
-  pdf.setFontSize(8);pdf.setTextColor(90,105,95);
-  pdf.text('Based on saved punches only; approved leave and holidays are not counted as punches.',left,280);
-  pdf.text('Page '+page,180,286);
-  pdf.save('Daily-Kharcha-Attendance-'+month+'.pdf');
+  const objects=[null],add=x=>{objects.push(x);return objects.length-1;};
+  const catalog=add(''),rootPages=add('');
+  const fontRegular=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  const fontBold=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+  const pageRefs=[];
+  for(const content of pages){
+   const streamRef=add('<< /Length '+new TextEncoder().encode(content).length+' >>\nstream\n'+content+'endstream');
+   pageRefs.push(add('<< /Type /Page /Parent '+rootPages+' 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 '+fontRegular+' 0 R /F2 '+fontBold+' 0 R >> >> /Contents '+streamRef+' 0 R >>'));
+  }
+  objects[rootPages]='<< /Type /Pages /Kids ['+pageRefs.map(x=>x+' 0 R').join(' ')+'] /Count '+pageRefs.length+' >>';
+  objects[catalog]='<< /Type /Catalog /Pages '+rootPages+' 0 R >>';
+  let pdf='%PDF-1.4\n',offsets=[0];
+  for(let i=1;i<objects.length;i++){offsets[i]=pdf.length;pdf+=i+' 0 obj\n'+objects[i]+'\nendobj\n';}
+  const xref=pdf.length;
+  pdf+='xref\n0 '+objects.length+'\n0000000000 65535 f \n';
+  for(let i=1;i<objects.length;i++)pdf+=String(offsets[i]).padStart(10,'0')+' 00000 n \n';
+  pdf+='trailer\n<< /Size '+objects.length+' /Root '+catalog+' 0 R >>\nstartxref\n'+xref+'\n%%EOF';
+  const url=URL.createObjectURL(new Blob([pdf],{type:'application/pdf'}));
+  const link=document.createElement('a');link.href=url;link.download='Daily-Kharcha-Attendance-'+month+'.pdf';
+  document.body.appendChild(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
  }catch(err){alert('Unable to download attendance PDF: '+friendlyError(err));}
  finally{btn.disabled=false;btn.textContent=original;}
 };
