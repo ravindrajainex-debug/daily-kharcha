@@ -117,7 +117,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <div class="field"><label>Welfare Fund (₹)</label><input id="salaryWelfare" type="number" min="0" step="0.01"></div>
 </div>
 <div class="stats" style="margin-top:16px"><div class="stat"><small>Total Earnings</small><strong id="salaryEarningsPreview">₹0.00</strong></div><div class="stat"><small>Total Deductions</small><strong id="salaryDeductionsPreview">₹0.00</strong></div><div class="stat"><small>Net Pay</small><strong id="salaryNetPreview">₹0.00</strong></div></div>
-<div class="row" style="margin-top:12px"><button class="btn" id="salarySave" type="button">Save Salary Draft</button><span id="salarySaveStatus" class="muted" role="status"></span><button class="btn light" id="salaryLoad" type="button">Load Saved Draft</button><button class="btn light" id="salaryNextMonth" type="button">Prepare Next Month Draft</button><button class="btn light" id="salaryDraftPrint" type="button">Print Draft Salary Slip</button><button class="btn light" id="salaryDraftPdf" type="button">Save Draft as PDF (Original Format)</button><button class="btn light hidden" id="salaryFinalPrint" type="button">Download Final Approved Slip</button><span class="muted" id="salaryStatusLabel">Draft only — not approved or final</span></div><p class="note">Drafts are stored securely for your active company and account. Final salary slips require Admin/HR approval.</p>
+<div class="row" style="margin-top:12px"><button class="btn" id="salarySave" type="button">Save Salary Draft</button><span id="salarySaveStatus" class="muted" role="status"></span><button class="btn light" id="salaryLoad" type="button">Load Saved Draft</button><button class="btn light" id="salaryNextMonth" type="button">Prepare Next Month Draft</button><button class="btn light" id="salaryDraftPrint" type="button">Print Draft Salary Slip</button><button class="btn light" id="salaryDraftPdf" type="button">Download Original Salary Slip</button><button class="btn light hidden" id="salaryFinalPrint" type="button">Download Final Approved Slip</button><span class="muted" id="salaryStatusLabel">Draft only — not approved or final</span></div><p class="note">Drafts are stored securely for your active company and account. Final salary slips require Admin/HR approval.</p>
 <div id="salaryApprovalPanel" class="hidden"><h4>Bulk Monthly Salary Preparation</h4><p class="note">Preview employees with approved slips in the source month. No salary is created or changed during preview.</p><div class="row"><label for="bulkSalarySource">Approved source month</label><input id="bulkSalarySource" type="month"><button class="btn light" id="bulkSalaryPreview" type="button">Preview Bulk Salary</button><button class="btn" id="bulkSalaryGenerate" type="button">Generate Bulk Salary Drafts</button></div><p id="bulkSalaryMessage" role="status"></p><div id="bulkSalaryList"></div><h4>Approved Salary Correction (Owner / Admin / HR)</h4><p class="note">Only zero-gross approved slips can be reopened for correction. The previous approved details are preserved in the record history. Re-approval is required.</p><button class="btn light" id="salaryRefreshCorrections" type="button">Find Zero-Salary Approved Slips</button><p id="salaryCorrectionMessage" role="status"></p><div id="salaryCorrectionList"></div><h4>HR / Admin Salary Approvals</h4><button class="btn light" id="salaryRefreshApprovals" type="button">Refresh Pending Drafts</button><p id="salaryApprovalMessage"></p><div id="salaryApprovalList"></div></div>
 </section>
  <section id="accessoriesTab" class="panel hidden"><h3>Employee Accessories Issue / Return</h3><div id="companyDashboardShortcut" class="hidden" style="margin:10px 0 18px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#f4f6f3"><strong>Employee Invitations</strong><p class="muted" style="margin:4px 0 10px">Open your Company Dashboard to manage employee invitations.</p><button id="openCompanyFromAccessories" type="button">Open Company Dashboard</button></div><p class="muted">Track items issued to employees and record returns. No inventory management.</p>
@@ -1217,12 +1217,14 @@ $('salaryDraftPrint').onclick=()=>printSalarySlip(false);
 function downloadSalaryPdf(finalApproved=false){
  const doc=printSalarySlip(finalApproved,null,true);
  if(!doc)return;
- const win=window.open('','_blank');
- if(!win){alert('Please allow the salary slip print window, then select Save as PDF.');return;}
- win.document.open();win.document.write(doc);win.document.close();
- win.focus();
- win.setTimeout(()=>win.print(),350);
- $('salarySaveStatus').textContent='Original salary slip format opened. In the print dialog, select Save as PDF and A4.';
+ const month=$('salaryMonth').value;
+ const url=URL.createObjectURL(new Blob([doc],{type:'text/html;charset=utf-8'}));
+ const link=document.createElement('a');
+ link.href=url;
+ link.download='Daily-Kharcha-Salary-'+month+'-'+(finalApproved?'Approved':'Draft')+'.html';
+ document.body.appendChild(link);link.click();link.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),60000);
+ $('salarySaveStatus').textContent='Original salary slip downloaded without opening a print window. Open the HTML file when needed and use Ctrl+P > Save as PDF (A4).';
 }
 $('salaryDraftPdf').onclick=()=>downloadSalaryPdf(false);
 
