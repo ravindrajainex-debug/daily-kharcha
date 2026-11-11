@@ -878,7 +878,7 @@ async function loadLeaveRequests(){
  const reviewer=canReviewLeave(),records=data||[];
  if(!records.length){target.textContent='No leave requests yet.';return;}
  const names=new Map();
- if(reviewer){const ids=[...new Set(records.map(x=>x.employee_id))];const q=await client.from('profiles').select('id,full_name').in('id',ids);if(!q.error)(q.data||[]).forEach(x=>names.set(x.id,x.full_name));}
+ if(reviewer){const q=await client.rpc('sample_company_employee_names',{p_company_id:activeCompany.id});if(!q.error)(q.data||[]).forEach(x=>names.set(x.id,x.full_name));}
  const table=document.createElement('table');
  const head=document.createElement('thead');head.innerHTML='<tr><th>Employee</th><th>Type</th><th>Dates</th><th>Reason</th><th>Status</th><th>Action</th></tr>';table.appendChild(head);
  const body=document.createElement('tbody');
