@@ -187,7 +187,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
   <h3>Built for teams</h3><p>Daily Kharcha supports company owners, administrators, managers and employees with different access levels. Available actions depend on the user's assigned role and company membership.</p>
   <section class="global-vision" aria-labelledby="globalVisionTitle">
     <div class="global-vision-copy"><span class="global-eyebrow">OUR GLOBAL VISION</span><h3 id="globalVisionTitle">Built in India. Designed for a Connected World.</h3><p>Daily Kharcha is an India-based digital business management platform with a vision to simplify everyday operations for companies and teams across the world.</p><p>Our goal is to make expenses, attendance, salary records and everyday business workflows easier to manage — wherever teams work.</p><p class="global-disclaimer">Global expansion is our vision. This illustration does not represent verified customer or visitor locations.</p></div>
-    <div class="global-map" id="globalVisionMap" role="img" aria-label="Decorative world map representing Daily Kharcha's global vision, not actual visitor locations">
+    <div class="global-map" role="img" aria-label="Decorative world map representing Daily Kharcha's global vision, not actual visitor locations">
       <svg viewBox="0 0 700 355" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
        <defs><pattern id="globalGrid" width="35" height="35" patternUnits="userSpaceOnUse"><path d="M35 0H0V35" fill="none" stroke="#c4e1d2" stroke-opacity=".16" stroke-width="1"/></pattern><radialGradient id="globalGlow"><stop stop-color="#51b59a" stop-opacity=".25"/><stop offset="1" stop-color="#51b59a" stop-opacity="0"/></radialGradient></defs>
        <rect width="700" height="355" fill="url(#globalGrid)"/><circle cx="360" cy="180" r="175" fill="url(#globalGlow)"/>
@@ -1284,37 +1284,6 @@ async function init(){
 init();
 })();
 </script>
-<script type="module">
-// Natural Earth geography: load only when the About Us map exists; preserve fallback artwork if offline.
-(async()=>{
- const container=document.getElementById('globalVisionMap');if(!container)return;
- try{
-  const [d3,topojson,response]=await Promise.all([
-   import('https://cdn.jsdelivr.net/npm/d3-geo@3/+esm'),
-   import('https://cdn.jsdelivr.net/npm/topojson-client@3/+esm'),
-   fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
-  ]);
-  if(!response.ok)throw Error('Map data unavailable');
-  const atlas=await response.json();const countries=topojson.feature(atlas,atlas.objects.countries);
-  const projection=d3.geoNaturalEarth1().fitExtent([[15,15],[685,337]],{type:'Sphere'});
-  const path=d3.geoPath(projection);const svgNS='http://www.w3.org/2000/svg';
-  const svg=document.createElementNS(svgNS,'svg');svg.setAttribute('viewBox','0 0 700 355');svg.setAttribute('aria-hidden','true');svg.setAttribute('focusable','false');
-  const group=document.createElementNS(svgNS,'g');
-  countries.features.forEach(country=>{
-   const shape=document.createElementNS(svgNS,'path');shape.setAttribute('d',path(country)||'');
-   shape.setAttribute('fill',String(country.id)==='356'?'#e5b85e':'#78b49f');
-   shape.setAttribute('stroke','#c9e2d6');shape.setAttribute('stroke-width','.65');shape.setAttribute('stroke-linejoin','round');
-   const title=document.createElementNS(svgNS,'title');title.textContent=country.properties?.name||'Country';shape.append(title);group.append(shape);
-  });
-  svg.append(group);
-  const india=projection([78.9629,20.5937]);if(india){
-   const halo=document.createElementNS(svgNS,'circle');halo.setAttribute('cx',india[0]);halo.setAttribute('cy',india[1]);halo.setAttribute('r','12');halo.setAttribute('fill','#e5b85e');halo.setAttribute('opacity','.2');svg.append(halo);
-   const dot=document.createElementNS(svgNS,'circle');dot.setAttribute('cx',india[0]);dot.setAttribute('cy',india[1]);dot.setAttribute('r','4');dot.setAttribute('fill','#ffe2a1');dot.setAttribute('stroke','#fff');dot.setAttribute('stroke-width','1.4');svg.append(dot);
-   const label=document.createElementNS(svgNS,'text');label.setAttribute('x',india[0]+10);label.setAttribute('y',india[1]+17);label.setAttribute('fill','#fff');label.setAttribute('font-size','13');label.setAttribute('font-weight','700');label.textContent='India';svg.append(label);
-  }
-  container.replaceChildren(svg);
- }catch(err){console.info('Global Vision map fallback retained:',err.message);}
-})();
-</script>
+
 </body></html>
 <!-- Deployment sync: standalone salary PDF fix; no functional changes. -->
