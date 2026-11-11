@@ -73,7 +73,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
    <div class="row" style="margin:12px 0"><label style="display:flex;gap:8px;align-items:flex-start"><input id="locationConsent" type="checkbox" style="margin-top:5px"> I consent to share my location at Punch In and Punch Out.</label></div>
    <div class="row"><button class="btn" id="punchInBtn" type="button">Punch In</button><button class="btn light" id="punchOutBtn" type="button" disabled>Punch Out</button><span id="attendanceStatus" class="pill">Not punched in</span></div><p id="locationMessage" class="note" role="status">Location permission is optional. No background tracking is performed.</p>
   </div>
-  <div class="panel"><h3 class="section-title">Attendance history</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Punch In</th><th>Punch Out</th><th>Location consent</th><th>Status</th></tr></thead><tbody id="attendanceRows"></tbody></table><div id="attendanceEmpty" class="empty">No attendance records yet.</div></div><div class="panel"><h3>My Approved Leave</h3><p class="muted">Approved leave is shown separately from punch attendance. Salary and attendance punches are not changed automatically.</p><div id="attendanceApprovedLeave" class="table-wrap">Open Attendance to load approved leave.</div></div></div>
+  <div class="panel"><h3 class="section-title">Attendance history</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Punch In</th><th>Punch Out</th><th>Location consent</th><th>Status</th></tr></thead><tbody id="attendanceRows"></tbody></table><div id="attendanceEmpty" class="empty">No attendance records yet.</div></div><div class="panel"><h3>Monthly Attendance Summary</h3><div class="row"><label for="attendanceSummaryMonth">Month</label><input id="attendanceSummaryMonth" type="month"><button class="btn light" id="attendanceSummaryRefresh" type="button">Refresh Summary</button></div><div id="attendanceMonthlySummary" class="muted" role="status">Select a month to view your summary.</div></div><div class="panel"><h3>My Approved Leave</h3><p class="muted">Approved leave is shown separately from punch attendance. Salary and attendance punches are not changed automatically.</p><div id="attendanceApprovedLeave" class="table-wrap">Open Attendance to load approved leave.</div></div></div>
  </section>
  <section id="leaveTab" class="panel hidden"><h3>Leave Request / Approval</h3><p class="muted">Apply for leave and check approval status. Company Owner, Admin, HR and Manager can review requests.</p>
 <form id="leaveForm" class="grid">
@@ -328,6 +328,29 @@ $('cancelEditBtn').onclick=()=>{$('expenseForm').reset();$('expenseDate').value=
 $('monthFilter').onchange=renderExpenses;$('printBtn').onclick=()=>window.print();
 $('csvBtn').onclick=()=>{const month=$('monthFilter').value,rows=[['Sr.','Date','Category','Mode','From','To','Receipt','Amount INR','Remarks'],...expenses.filter(x=>!month||x.expense_date.startsWith(month)).map((x,i)=>[i+1,x.expense_date,x.category,x.travel_mode,x.from_location,x.to_location,x.receipt_number,x.amount,x.description])];const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='daily-kharcha-'+(month||'all')+'.csv';a.click();URL.revokeObjectURL(a.href);};
 async function loadAttendance(){if(!activeCompany){attendance=[];renderAttendance();return;}const {data,error}=await client.from('attendance_records').select('*').eq('company_id',activeCompany.id).eq('user_id',currentUser.id).order('punch_in_at',{ascending:false});if(error)throw error;attendance=data||[];renderAttendance();}
+async function loadAttendanceMonthlySummary(){
+ const target=$('attendanceMonthlySummary'),month=$('attendanceSummaryMonth')?.value;
+ if(!target||!month)return;
+ if(!activeCompany||!currentUser){target.textContent='Select an approved company first.';return;}
+ const [year,mon]=month.split('-').map(Number),last=new Date(Date.UTC(year,mon,0)).getUTCDate(),start=month+'-01',end=month+'-'+String(last).padStart(2,'0');
+ target.textContent='Loading monthly summary...';
+ const [punch,leaves]=await Promise.all([
+  client.from('attendance_records').select('work_date,punch_in_at').eq('company_id',activeCompany.id).eq('user_id',currentUser.id).gte('work_date',start).lte('work_date',end),
+  client.from('employee_leave_requests').select('start_date,end_date').eq('company_id',activeCompany.id).eq('employee_id',currentUser.id).eq('status','approved').lte('start_date',end).gte('end_date',start)
+ ]);
+ if(punch.error||leaves.error){target.textContent='Unable to load monthly summary: '+friendlyError(punch.error||leaves.error);return;}
+ const present=new Set((punch.data||[]).filter(x=>x.punch_in_at).map(x=>x.work_date));
+ const leaveDays=new Set();
+ for(const l of leaves.data||[]){let day=l.start_date>start?l.start_date:start;const stop=l.end_date<end?l.end_date:end;while(day<=stop){leaveDays.add(day);const dt=new Date(day+'T00:00:00Z');dt.setUTCDate(dt.getUTCDate()+1);day=dt.toISOString().slice(0,10);}}
+ const overlapping=[...leaveDays].filter(d=>present.has(d)).length;
+ target.replaceChildren();
+ const table=document.createElement('table'),body=document.createElement('tbody');
+ for(const [label,value] of [['Calendar days',last],['Days with punch-in',present.size],['Approved leave days',leaveDays.size],['Leave days also punched in',overlapping],['Other calendar days (not classified)',last-new Set([...present,...leaveDays]).size]]){const tr=document.createElement('tr');for(const cell of [label,value]){const td=document.createElement('td');td.textContent=String(cell);tr.appendChild(td);}body.appendChild(tr);}
+ table.appendChild(body);target.appendChild(table);
+ const note=document.createElement('p');note.className='muted';note.textContent='Calendar-day overview only. Weekends, holidays, absences, paid/unpaid leave and salary deductions are not calculated. Overlapping punch and leave dates are not double-counted.';target.appendChild(note);
+}
+$('attendanceSummaryMonth').value=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}).slice(0,7);
+$('attendanceSummaryRefresh').onclick=loadAttendanceMonthlySummary;
 async function loadAttendanceApprovedLeave(){
  const target=$('attendanceApprovedLeave');
  if(!target)return;
@@ -922,7 +945,7 @@ $('leaveForm').onsubmit=async e=>{
  if(error)throw error;msg('leaveMessage','Leave request submitted for approval.');$('leaveForm').reset();await loadLeaveRequests();
  }catch(error){msg('leaveMessage','Unable to apply leave: '+friendlyError(error),true);}finally{btn.disabled=false;}
 };
-function showTab(tab){activeTab=tab;if(tab==='leave')loadLeaveRequests();if(tab==='attendance')loadAttendanceApprovedLeave();['company','expenses','attendance','salary','leave','accessories','samples','orders','about','profile','admin'].forEach(t=>{const section=t==='admin'?'adminTabPanel':t+'Tab';const el=$(section);if(el)el.classList.toggle('hidden',t!==tab);});document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));}
+function showTab(tab){activeTab=tab;if(tab==='leave')loadLeaveRequests();if(tab==='attendance'){loadAttendanceApprovedLeave();loadAttendanceMonthlySummary();}['company','expenses','attendance','salary','leave','accessories','samples','orders','about','profile','admin'].forEach(t=>{const section=t==='admin'?'adminTabPanel':t+'Tab';const el=$(section);if(el)el.classList.toggle('hidden',t!==tab);});document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{const tab=b.dataset.tab;showTab(tab);if(tab==='accessories'){Promise.resolve().then(()=>loadAccessories()).catch(()=>showRuntimeNotice('Accessories could not load.'));}if(tab==='samples'){Promise.resolve().then(()=>loadSamples()).catch(()=>showRuntimeNotice('Samples could not load.'));}if(tab==='orders'){Promise.resolve().then(()=>loadOrders()).catch(()=>showRuntimeNotice('Orders could not load.'));}if(tab==='company'){Promise.allSettled([loadCompanyMembers(),loadInvitationRequests()]).then(results=>{if(results.some(r=>r.status==='rejected'))showRuntimeNotice('Company data could not load. Try opening this tab again.');});}if(tab==='admin'&&isAdmin){Promise.resolve().then(()=>loadApplications()).catch(()=>showRuntimeNotice('Admin data could not load. Try opening this tab again.'));}});
 // Default the draft to the selected month and its calendar-day count.
 function syncSalaryMonthDays(){
