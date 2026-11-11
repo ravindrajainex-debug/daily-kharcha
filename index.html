@@ -73,7 +73,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
    <div class="row" style="margin:12px 0"><label style="display:flex;gap:8px;align-items:flex-start"><input id="locationConsent" type="checkbox" style="margin-top:5px"> I consent to share my location at Punch In and Punch Out.</label></div>
    <div class="row"><button class="btn" id="punchInBtn" type="button">Punch In</button><button class="btn light" id="punchOutBtn" type="button" disabled>Punch Out</button><span id="attendanceStatus" class="pill">Not punched in</span></div><p id="locationMessage" class="note" role="status">Location permission is optional. No background tracking is performed.</p>
   </div>
-  <div class="panel"><h3 class="section-title">Attendance history</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Punch In</th><th>Punch Out</th><th>Location consent</th><th>Status</th></tr></thead><tbody id="attendanceRows"></tbody></table><div id="attendanceEmpty" class="empty">No attendance records yet.</div></div><div class="panel"><h3>Monthly Attendance Summary</h3><div class="row"><label for="attendanceSummaryMonth">Month</label><input id="attendanceSummaryMonth" type="month"><button class="btn light" id="attendanceSummaryRefresh" type="button">Refresh Summary</button></div><div id="attendanceMonthlySummary" class="muted" role="status">Select a month to view your summary.</div></div><div class="panel"><h3>My Approved Leave</h3><p class="muted">Approved leave is shown separately from punch attendance. Salary and attendance punches are not changed automatically.</p><div id="attendanceApprovedLeave" class="table-wrap">Open Attendance to load approved leave.</div></div></div>
+  <div class="panel"><h3 class="section-title">Attendance history</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Punch In</th><th>Punch Out</th><th>Location consent</th><th>Status</th></tr></thead><tbody id="attendanceRows"></tbody></table><div id="attendanceEmpty" class="empty">No attendance records yet.</div></div><div class="panel"><h3>Monthly Attendance Summary</h3><div class="row"><label for="attendanceSummaryMonth">Month</label><input id="attendanceSummaryMonth" type="month"><button class="btn light" id="attendanceSummaryRefresh" type="button">Refresh Summary</button></div><div id="attendanceMonthlySummary" class="muted" role="status">Select a month to view your summary.</div></div><div class="panel"><h3>My Leave Balance</h3><p class="muted">Read-only calendar-day estimate based on approved leave and company allowance. Weekly offs and holidays are not deducted automatically. This does not affect payroll.</p><div class="row"><label for="leaveBalanceYear">Year</label><input id="leaveBalanceYear" type="number" min="2020" max="2100" step="1" style="width:110px"><button class="btn light" type="button" id="leaveBalanceRefresh">Refresh Balance</button></div><div id="leaveBalanceTable" class="table-wrap">Open Attendance to load leave balance.</div></div><div class="panel"><h3>My Approved Leave</h3><p class="muted">Approved leave is shown separately from punch attendance. Salary and attendance punches are not changed automatically.</p><div id="attendanceApprovedLeave" class="table-wrap">Open Attendance to load approved leave.</div></div></div>
  </section>
  <section id="leaveTab" class="panel hidden"><h3>Leave Request / Approval</h3><p class="muted">Apply for leave and check approval status. Company Owner, Admin, HR and Manager can review requests.</p>
 <form id="leaveForm" class="grid">
@@ -386,6 +386,34 @@ async function loadAttendanceMonthlySummary(){
 }
 $('attendanceSummaryMonth').value=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}).slice(0,7);
 $('attendanceSummaryRefresh').onclick=loadAttendanceMonthlySummary;
+async function loadMyLeaveBalance(){
+ const target=$('leaveBalanceTable'),year=Number($('leaveBalanceYear')?.value);
+ if(!target||!activeCompany||!currentUser)return;
+ if(!Number.isInteger(year)||year<2020||year>2100){target.textContent='Select a valid year.';return;}
+ const start=year+'-01-01',end=year+'-12-31';
+ target.textContent='Loading leave balance...';
+ const [policy,leaves]=await Promise.all([
+  client.from('company_attendance_settings').select('leave_allowance_period,casual_leave_allowance,sick_leave_allowance,earned_leave_allowance').eq('company_id',activeCompany.id).maybeSingle(),
+  client.from('employee_leave_requests').select('leave_type,start_date,end_date').eq('company_id',activeCompany.id).eq('employee_id',currentUser.id).eq('status','approved').lte('start_date',end).gte('end_date',start)
+ ]);
+ if(policy.error||leaves.error){target.textContent='Unable to load leave balance: '+friendlyError(policy.error||leaves.error);return;}
+ const period=policy.data?.leave_allowance_period||'yearly',monthly=period==='monthly';
+ const types=[['Casual','casual_leave_allowance'],['Sick','sick_leave_allowance'],['Earned','earned_leave_allowance']];
+ const used={Casual:new Set(),Sick:new Set(),Earned:new Set()};
+ for(const leave of leaves.data||[]){
+  const key=types.find(t=>t[0].toLowerCase()===String(leave.leave_type||'').trim().toLowerCase())?.[0];
+  if(!key)continue;
+  let day=leave.start_date>start?leave.start_date:start,stop=leave.end_date<end?leave.end_date:end;
+  while(day<=stop){used[key].add(day);const dt=new Date(day+'T00:00:00Z');dt.setUTCDate(dt.getUTCDate()+1);day=dt.toISOString().slice(0,10);}
+ }
+ const table=document.createElement('table'),head=document.createElement('thead'),body=document.createElement('tbody');
+ head.innerHTML='<tr><th>Leave Type</th><th>Allowed / Year</th><th>Used</th><th>Remaining</th></tr>';
+ for(const [name,field] of types){const allowed=(Number(policy.data?.[field])||0)*(monthly?12:1),count=used[name].size,tr=document.createElement('tr');for(const value of [name,allowed,count,allowed-count]){const td=document.createElement('td');td.textContent=String(value);tr.appendChild(td);}body.appendChild(tr);}
+ table.append(head,body);target.replaceChildren(table);
+ const note=document.createElement('p');note.className='muted';note.textContent=(monthly?'Monthly allowance × 12 shown as annual entitlement. ':'Yearly allowance shown. ')+'Approved calendar dates only; no carry-forward, pro-rating, paid/unpaid classification or salary deduction. Negative remaining indicates overuse; existing approvals are unchanged.';target.appendChild(note);
+}
+$('leaveBalanceYear').value=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}).slice(0,4);
+$('leaveBalanceRefresh').onclick=loadMyLeaveBalance;
 async function loadAttendanceApprovedLeave(){
  const target=$('attendanceApprovedLeave');
  if(!target)return;
@@ -980,7 +1008,7 @@ $('leaveForm').onsubmit=async e=>{
  if(error)throw error;msg('leaveMessage','Leave request submitted for approval.');$('leaveForm').reset();await loadLeaveRequests();
  }catch(error){msg('leaveMessage','Unable to apply leave: '+friendlyError(error),true);}finally{btn.disabled=false;}
 };
-function showTab(tab){activeTab=tab;if(tab==='leave')loadLeaveRequests();if(tab==='attendance'){loadAttendanceApprovedLeave();loadAttendanceMonthlySummary();}['company','expenses','attendance','salary','leave','accessories','samples','orders','about','profile','admin'].forEach(t=>{const section=t==='admin'?'adminTabPanel':t+'Tab';const el=$(section);if(el)el.classList.toggle('hidden',t!==tab);});document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));}
+function showTab(tab){activeTab=tab;if(tab==='leave')loadLeaveRequests();if(tab==='attendance'){loadAttendanceApprovedLeave();loadAttendanceMonthlySummary();loadMyLeaveBalance();}['company','expenses','attendance','salary','leave','accessories','samples','orders','about','profile','admin'].forEach(t=>{const section=t==='admin'?'adminTabPanel':t+'Tab';const el=$(section);if(el)el.classList.toggle('hidden',t!==tab);});document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{const tab=b.dataset.tab;showTab(tab);if(tab==='accessories'){Promise.resolve().then(()=>loadAccessories()).catch(()=>showRuntimeNotice('Accessories could not load.'));}if(tab==='samples'){Promise.resolve().then(()=>loadSamples()).catch(()=>showRuntimeNotice('Samples could not load.'));}if(tab==='orders'){Promise.resolve().then(()=>loadOrders()).catch(()=>showRuntimeNotice('Orders could not load.'));}if(tab==='company'){loadCompanyAttendanceSettings();Promise.allSettled([loadCompanyMembers(),loadInvitationRequests()]).then(results=>{if(results.some(r=>r.status==='rejected'))showRuntimeNotice('Company data could not load. Try opening this tab again.');});}if(tab==='admin'&&isAdmin){Promise.resolve().then(()=>loadApplications()).catch(()=>showRuntimeNotice('Admin data could not load. Try opening this tab again.'));}});
 // Default the draft to the selected month and its calendar-day count.
 function syncSalaryMonthDays(){
