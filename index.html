@@ -399,25 +399,35 @@ async function loadMyLeaveBalance(){
  if(!Number.isInteger(year)||year<2020||year>2100){target.textContent='Select a valid year.';return;}
  const start=year+'-01-01',end=year+'-12-31';
  target.textContent='Loading leave balance...';
- const [policy,leaves]=await Promise.all([
-  client.from('company_attendance_settings').select('leave_allowance_period,casual_leave_allowance,sick_leave_allowance,earned_leave_allowance').eq('company_id',activeCompany.id).maybeSingle(),
-  client.from('employee_leave_requests').select('leave_type,start_date,end_date').eq('company_id',activeCompany.id).eq('employee_id',currentUser.id).eq('status','approved').lte('start_date',end).gte('end_date',start)
+ const [policy,leaves,holidays]=await Promise.all([
+  client.from('company_attendance_settings').select('leave_allowance_period,casual_leave_allowance,sick_leave_allowance,earned_leave_allowance,weekly_off_days,saturday_off_weeks,deduct_weekly_off_from_leave,deduct_company_holiday_from_leave').eq('company_id',activeCompany.id).maybeSingle(),
+  client.from('employee_leave_requests').select('leave_type,start_date,end_date').eq('company_id',activeCompany.id).eq('employee_id',currentUser.id).eq('status','approved').lte('start_date',end).gte('end_date',start),
+  client.from('company_holidays').select('holiday_date').eq('company_id',activeCompany.id).gte('holiday_date',start).lte('holiday_date',end)
  ]);
- if(policy.error||leaves.error){target.textContent='Unable to load leave balance: '+friendlyError(policy.error||leaves.error);return;}
+ const error=policy.error||leaves.error||holidays.error;
+ if(error){target.textContent='Unable to load leave balance: '+friendlyError(error);return;}
  const period=policy.data?.leave_allowance_period||'yearly',monthly=period==='monthly';
  const types=[['Casual','casual_leave_allowance'],['Sick','sick_leave_allowance'],['Earned','earned_leave_allowance']];
- const used={Casual:new Set(),Sick:new Set(),Earned:new Set()};
+ const used={Casual:new Set(),Sick:new Set(),Earned:new Set()},excluded=new Set();
+ const weekly=policy.data?.weekly_off_days||[0],satWeeks=policy.data?.saturday_off_weeks||[],holidayDates=new Set((holidays.data||[]).map(h=>h.holiday_date));
+ const countWeekly=policy.data?.deduct_weekly_off_from_leave??true,countHoliday=policy.data?.deduct_company_holiday_from_leave??true;
  for(const leave of leaves.data||[]){
   const key=types.find(t=>t[0].toLowerCase()===String(leave.leave_type||'').trim().toLowerCase())?.[0];
   if(!key)continue;
   let day=leave.start_date>start?leave.start_date:start,stop=leave.end_date<end?leave.end_date:end;
-  while(day<=stop){used[key].add(day);const dt=new Date(day+'T00:00:00Z');dt.setUTCDate(dt.getUTCDate()+1);day=dt.toISOString().slice(0,10);}
+  while(day<=stop){
+   const dt=new Date(day+'T00:00:00Z'),weekday=dt.getUTCDay(),nth=Math.ceil(dt.getUTCDate()/7);
+   const isWeekly=weekly.includes(weekday)||(weekday===6&&satWeeks.includes(nth));
+   const exclude=(!countWeekly&&isWeekly)||(!countHoliday&&holidayDates.has(day));
+   if(exclude)excluded.add(day);else used[key].add(day);
+   dt.setUTCDate(dt.getUTCDate()+1);day=dt.toISOString().slice(0,10);
+  }
  }
  const table=document.createElement('table'),head=document.createElement('thead'),body=document.createElement('tbody');
  head.innerHTML='<tr><th>Leave Type</th><th>Allowed / Year</th><th>Used</th><th>Remaining</th></tr>';
  for(const [name,field] of types){const allowed=(Number(policy.data?.[field])||0)*(monthly?12:1),count=used[name].size,tr=document.createElement('tr');for(const value of [name,allowed,count,allowed-count]){const td=document.createElement('td');td.textContent=String(value);tr.appendChild(td);}body.appendChild(tr);}
  table.append(head,body);target.replaceChildren(table);
- const note=document.createElement('p');note.className='muted';note.textContent=(monthly?'Monthly allowance × 12 shown as annual entitlement. ':'Yearly allowance shown. ')+'Approved calendar dates only; no carry-forward, pro-rating, paid/unpaid classification or salary deduction. Negative remaining indicates overuse; existing approvals are unchanged.';target.appendChild(note);
+ const note=document.createElement('p');note.className='muted';note.textContent=(monthly?'Monthly allowance × 12 shown as annual entitlement. ':'Yearly allowance shown. ')+(countWeekly?'Weekly offs included. ':'Weekly offs excluded. ')+(countHoliday?'Company holidays included. ':'Company holidays excluded. ')+'Read-only approved leave date estimate; no carry-forward, pro-rating, paid/unpaid classification or salary deduction. Negative remaining indicates overuse; existing approvals are unchanged.';target.appendChild(note);
 }
 $('leaveBalanceYear').value=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}).slice(0,4);
 $('leaveBalanceRefresh').onclick=loadMyLeaveBalance;
