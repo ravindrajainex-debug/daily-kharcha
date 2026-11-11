@@ -146,7 +146,10 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
 <p id="sampleMessage" role="status"></p><div class="row no-print" style="margin:12px 0"><button class="btn light" id="sampleRefresh" type="button">Refresh Samples</button><select id="sampleFilter"><option value="all">All Records</option><option value="pending">Pending Approval</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="not_returned">Not Returned</option><option value="returned">Returned</option></select></div>
 <div id="sampleReportPanel" class="row no-print hidden" style="margin:12px 0;gap:8px;flex-wrap:wrap"><label for="sampleReportEmployee">Employee-wise Report</label><select id="sampleReportEmployee"><option value="all">All Employees</option></select><button type="button" class="btn light" id="sampleReportDownload">Download Report (Print / PDF)</button><button type="button" class="btn light" id="sampleReportPrint">Download Excel CSV</button></div>
 <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Product Name</th><th>Photo</th><th>Client Name</th><th>Submitted To</th><th>Person Name</th><th>Code</th><th>Qty</th><th>Issue Date</th><th>Due</th><th>Approval</th><th>Status</th><th>Action</th></tr></thead><tbody id="sampleRows"></tbody></table></div></section>
- <section id="ordersTab" class="panel hidden"><h3>Orders Received</h3><p class="muted">Company-wise order tracking and PO uploads</p><div id="ordersEditor"><form id="ordersForm" class="grid">
+ <section id="ordersTab" class="panel hidden"><h3>Orders Received</h3><p class="muted">Company-wise order tracking and PO uploads</p><div id="adminOrderEditPanel" class="panel hidden"><h4>Admin — Edit Existing Order</h4><p id="adminOrderEditTitle"></p><div class="grid">
+<div class="field"><label>Client Name<input id="editOrderClient" maxlength="200"></label></div><div class="field"><label>Product Name<input id="editOrderProduct" maxlength="200"></label></div><div class="field"><label>Product Code<input id="editOrderCode" maxlength="100"></label></div><div class="field"><label>Quantity<input id="editOrderQty" type="number" min="1"></label></div><div class="field"><label>Per Piece Price<input id="editOrderPrice" type="number" min="0" step="0.01"></label></div><div class="field"><label>GST Type<select id="editOrderGstMode"><option value="extra">GST Extra</option><option value="inclusive">GST Inclusive</option></select></label></div><div class="field"><label>GST Rate<select id="editOrderGstRate"><option value="5">5%</option><option value="12">12%</option><option value="18">18%</option><option value="28">28%</option></select></label></div><div class="field"><label>PO Number<input id="editOrderPo" maxlength="120"></label></div><div class="field"><label>Order Date<input id="editOrderDate" type="date"></label></div><div class="field"><label>Expected Delivery<input id="editOrderDue" type="date"></label></div><div class="field"><label>Customization / Notes<textarea id="editOrderNotes" maxlength="1000"></textarea></label></div></div>
+<p id="adminOrderEditTotal"></p><div class="row"><button type="button" class="btn" id="adminOrderEditSave">Save Order Changes</button><button type="button" class="btn light" id="adminOrderEditCancel">Cancel</button></div><p id="adminOrderEditMessage" role="status"></p></div>
+<div id="ordersEditor"><form id="ordersForm" class="grid">
 <div class="field"><label>Employee *</label><select id="orderEmployee" required></select></div>
 <div class="field"><label>Client Name *</label><input id="orderClient" required maxlength="200"></div>
 <div class="field"><label>Product Name *</label><input id="orderProduct" required maxlength="200"></div>
@@ -589,7 +592,7 @@ async function loadApplications(){
    const access=m?'Active – '+(m.role||'member'):(pending?'Pending approval':'No active company');
    const status=u.account_status||'active';
    const action=u.is_platform_admin?'Protected admin':(status==='suspended'?'<button class="btn" data-reactivate="'+u.id+'" type="button">Reactivate</button>':'<button class="btn danger" data-suspend="'+u.id+'" type="button">Suspend</button>');
-   return '<tr><td>'+esc(u.full_name||'—')+'</td><td>'+esc(u.mobile||'—')+'</td><td>'+esc(u.designation||'—')+'</td><td>'+esc(companyName)+'</td><td>'+esc(status==='suspended'?'Suspended':'Active')+'</td><td>'+esc(access)+'</td><td title="'+esc(u.id)+'">'+esc(u.id.slice(0,8))+'…</td><td>'+esc(u.created_at?new Date(u.created_at).toLocaleDateString('en-IN'):'—')+'</td><td>'+action+'</td></tr>';
+   return '<tr><td>'+esc(u.full_name||'—')+'</td><td>'+esc(u.mobile||'—')+'</td><td>'+esc(u.designation||'—')+'</td><td>'+esc(companyName)+'</td><td>'+esc(status==='suspended'?'Suspended':'Active')+'</td><td>'+esc(access)+'</td><td title="'+esc(u.id)+'">'+esc(u.id.slice(0,8))+'…</td><td>'+esc(u.created_at?new Date(u.created_at).toLocaleDateString('en-IN'):'—')+'</td><td>'+(ordersCanEdit()?'<button type="button" data-order-edit="'+esc(x.id)+'">Edit / Save</button> ':'')+action+'</td></tr>';
   }).join('');
   $('adminUsersEmpty').classList.toggle('hidden',filtered.length>0);
  };
@@ -688,6 +691,7 @@ calculateOrderTotals();
 let orderRecords=[],orderNames=new Map();
 const ordersCanManage=()=>!!activeCompany&&membership?.status==='active';
 const ordersCanReview=()=>!!activeCompany&&membership?.status==='active'&&['company_owner','owner','company_admin'].includes(membership.role);
+const ordersCanEdit=()=>!!activeCompany&&membership?.status==='active'&&['company_owner','owner','company_admin','hr_admin'].includes(membership.role);
 const ordersCanProgress=()=>!!activeCompany&&membership?.status==='active'&&['company_owner','owner','company_admin','hr_admin','manager'].includes(membership.role);
 $('orderDate').value=new Date().toISOString().slice(0,10);
 async function loadOrders(){
@@ -697,7 +701,7 @@ async function loadOrders(){
  try{
   // Orders and employee-name lookup are independent; fetch in parallel to reduce tab wait.
   const [q,p]=await Promise.all([
-   client.from('company_orders_received').select('id,employee_id,client_name,product_name,product_code,quantity,order_value,po_number,order_date,expected_delivery,order_status,po_file_path,approval_status,rejection_reason,unit_price,gst_mode,gst_rate,delivery_status,delivery_remarks,delivery_updated_at').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(250),
+   client.from('company_orders_received').select('id,employee_id,client_name,product_name,product_code,quantity,order_value,po_number,order_date,expected_delivery,order_status,po_file_path,approval_status,rejection_reason,unit_price,gst_mode,gst_rate,notes,delivery_status,delivery_remarks,delivery_updated_at').eq('company_id',activeCompany.id).order('created_at',{ascending:false}).limit(250),
    client.rpc('sample_company_employee_names',{p_company_id:activeCompany.id})
   ]);
   if(q.error)throw q.error;if(p.error)throw p.error;orderRecords=q.data||[];
@@ -967,7 +971,40 @@ $('ordersForm').onsubmit=async e=>{
   await loadOrders();msg('ordersMessage','Order saved successfully.');
  }catch(e){msg('ordersMessage','Unable to save order: '+friendlyError(e),true);}finally{btn.disabled=false;}
 };
+let editingOrderId=null;
+const editOrderFields={client_name:'editOrderClient',product_name:'editOrderProduct',product_code:'editOrderCode',quantity:'editOrderQty',unit_price:'editOrderPrice',gst_mode:'editOrderGstMode',gst_rate:'editOrderGstRate',po_number:'editOrderPo',order_date:'editOrderDate',expected_delivery:'editOrderDue',notes:'editOrderNotes'};
+function closeAdminOrderEdit(){editingOrderId=null;$('adminOrderEditPanel').classList.add('hidden');}
+$('adminOrderEditCancel').onclick=closeAdminOrderEdit;
+function showAdminOrderEdit(id){
+ if(!ordersCanEdit())return;
+ const rec=orderRecords.find(x=>x.id===id);if(!rec)return;
+ editingOrderId=id;
+ for(const [key,el] of Object.entries(editOrderFields))$(el).value=rec[key]??'';
+ $('adminOrderEditTitle').textContent='Editing: '+rec.client_name+' — '+rec.product_name;
+ $('adminOrderEditPanel').classList.remove('hidden');
+ $('adminOrderEditMessage').textContent='';
+ updateAdminOrderEditTotal();
+ $('adminOrderEditPanel').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function updateAdminOrderEditTotal(){
+ const qty=Number($('editOrderQty').value),price=Number($('editOrderPrice').value),gst=Number($('editOrderGstRate').value),mode=$('editOrderGstMode').value;
+ $('adminOrderEditTotal').textContent='Estimated Total (Incl. GST): ₹'+(qty*price*(mode==='extra'?1+gst/100:1)).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+['editOrderQty','editOrderPrice','editOrderGstRate','editOrderGstMode'].forEach(id=>$(id).addEventListener('input',updateAdminOrderEditTotal));
+$('adminOrderEditSave').onclick=async()=>{
+ if(!ordersCanEdit()||!editingOrderId)return;
+ const changes={};for(const [key,el] of Object.entries(editOrderFields))changes[key]=$(el).value;
+ if(!changes.client_name.trim()||!changes.product_name.trim()||!changes.order_date||Number(changes.quantity)<1||Number(changes.unit_price)<0||!changes.unit_price){msg('adminOrderEditMessage','Please enter valid required fields.',true);return;}
+ if(changes.expected_delivery&&changes.expected_delivery<changes.order_date){msg('adminOrderEditMessage','Expected delivery cannot be before order date.',true);return;}
+ const btn=$('adminOrderEditSave');btn.disabled=true;
+ try{
+  const {error}=await client.rpc('admin_edit_company_order',{p_order_id:editingOrderId,p_changes:changes});
+  if(error)throw error;
+  closeAdminOrderEdit();await loadOrders();msg('ordersMessage','Admin order changes saved successfully.');
+ }catch(err){msg('adminOrderEditMessage','Save failed: '+friendlyError(err),true);}finally{btn.disabled=false;}
+};
 $('ordersRows').onclick=async e=>{
+ const edit=e.target.closest('button[data-order-edit]');if(edit){showAdminOrderEdit(edit.dataset.orderEdit);return;}
  const delivery=e.target.closest('button[data-order-delivery]');if(delivery){if(!ordersCanProgress())return;const id=delivery.dataset.orderDelivery;const choices=['under_production','ready_for_dispatch','dispatched','in_transit','delivered','on_hold_delayed'];const label=['Under Production / Processing','Ready for Dispatch','Dispatched','In Transit','Delivered','On Hold / Delayed'];const choice=prompt('Delivery Status: Enter number\\n'+label.map((x,i)=>(i+1)+'. '+x).join('\\n'));if(choice===null)return;const index=Number(choice)-1;if(!Number.isInteger(index)||index<0||index>=choices.length){msg('ordersMessage','Please choose a valid status number (1–6).',true);return;}const remarks=prompt('Delivery Remarks (optional):')||'';delivery.disabled=true;try{const {error}=await client.rpc('update_order_delivery_status',{p_order_id:id,p_delivery_status:choices[index],p_remarks:remarks});if(error)throw error;await loadOrders();msg('ordersMessage','Delivery status updated.');}catch(err){msg('ordersMessage','Delivery update failed: '+friendlyError(err),true);}finally{delivery.disabled=false;}return;}
  const review=e.target.closest('button[data-order-review]');if(review){if(!ordersCanReview())return;const decision=review.dataset.orderReview;let reason=null;if(decision==='rejected'){reason=prompt('Please enter rejection reason:');if(reason===null)return;if(!reason.trim()){msg('ordersMessage','Rejection reason is required.',true);return;}}review.disabled=true;try{const {error}=await client.rpc('review_company_order',{p_order_id:review.dataset.orderId,p_decision:decision,p_reason:reason});if(error)throw error;await loadOrders();msg('ordersMessage','Order '+decision+'.');}catch(err){msg('ordersMessage','Review failed: '+friendlyError(err),true);}finally{review.disabled=false;}return;}
  const b=e.target.closest('button[data-order-po]');if(!b)return;
