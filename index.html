@@ -78,7 +78,7 @@ main{max-width:1120px;margin:26px auto;padding:0 18px}.panel,.stat{background:wh
    <div class="row" style="margin:12px 0"><label style="display:flex;gap:8px;align-items:flex-start"><input id="locationConsent" type="checkbox" style="margin-top:5px"> I consent to share my location at Punch In and Punch Out.</label></div>
    <div class="row"><button class="btn" id="punchInBtn" type="button">Punch In</button><button class="btn light" id="punchOutBtn" type="button" disabled>Punch Out</button><span id="attendanceStatus" class="pill">Not punched in</span></div><p id="locationMessage" class="note" role="status">Location permission is optional. No background tracking is performed.</p>
   </div>
-  <div class="panel"><h3 class="section-title">Attendance history</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Punch In</th><th>Punch Out</th><th>Location consent</th><th>Status</th></tr></thead><tbody id="attendanceRows"></tbody></table><div id="attendanceEmpty" class="empty">No attendance records yet.</div></div><div class="panel"><h3>Monthly Attendance Summary</h3><div class="row"><label for="attendanceSummaryMonth">Month</label><input id="attendanceSummaryMonth" type="month"><button class="btn light" id="attendanceSummaryRefresh" type="button">Refresh Summary</button><button class="btn light" id="attendancePrintReport" type="button">A4 Report / Print / Save as PDF</button></div><div id="attendanceMonthlySummary" class="muted" role="status">Select a month to view your summary.</div></div><div class="panel"><h3>My Leave Balance</h3><p class="muted">Read-only leave balance based on approved leave and your company’s leave allowance and deduction policy. Weekly offs and company holidays are included or excluded according to company settings. This does not affect payroll or existing leave approvals.</p><div class="row"><label for="leaveBalanceYear">Year</label><input id="leaveBalanceYear" type="number" min="2020" max="2100" step="1" style="width:110px"><button class="btn light" type="button" id="leaveBalanceRefresh">Refresh Balance</button></div><div id="leaveBalanceTable" class="table-wrap">Open Attendance to load leave balance.</div></div><div class="panel"><h3>My Approved Leave</h3><p class="muted">Approved leave is shown separately from punch attendance. Salary and attendance punches are not changed automatically.</p><div id="attendanceApprovedLeave" class="table-wrap">Open Attendance to load approved leave.</div></div></div>
+  <div class="panel"><h3 class="section-title">Attendance history</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Punch In</th><th>Punch Out</th><th>Location consent</th><th>Status</th></tr></thead><tbody id="attendanceRows"></tbody></table><div id="attendanceEmpty" class="empty">No attendance records yet.</div></div><div class="panel"><h3>Monthly Attendance Summary</h3><div class="row"><label for="attendanceSummaryMonth">Month</label><input id="attendanceSummaryMonth" type="month"><button class="btn light" id="attendanceSummaryRefresh" type="button">Refresh Summary</button><button class="btn light" id="attendancePrintReport" type="button">Download A4 Attendance PDF</button></div><div id="attendanceMonthlySummary" class="muted" role="status">Select a month to view your summary.</div></div><div class="panel"><h3>My Leave Balance</h3><p class="muted">Read-only leave balance based on approved leave and your company’s leave allowance and deduction policy. Weekly offs and company holidays are included or excluded according to company settings. This does not affect payroll or existing leave approvals.</p><div class="row"><label for="leaveBalanceYear">Year</label><input id="leaveBalanceYear" type="number" min="2020" max="2100" step="1" style="width:110px"><button class="btn light" type="button" id="leaveBalanceRefresh">Refresh Balance</button></div><div id="leaveBalanceTable" class="table-wrap">Open Attendance to load leave balance.</div></div><div class="panel"><h3>My Approved Leave</h3><p class="muted">Approved leave is shown separately from punch attendance. Salary and attendance punches are not changed automatically.</p><div id="attendanceApprovedLeave" class="table-wrap">Open Attendance to load approved leave.</div></div></div>
  </section>
  <section id="leaveTab" class="panel hidden"><h3>Leave Request / Approval</h3><p class="muted">Apply for leave and check approval status. Company Owner, Admin, HR and Manager can review requests.</p>
 <form id="leaveForm" class="grid">
@@ -439,11 +439,8 @@ $('attendancePrintReport').onclick=async()=>{
  const month=$('attendanceSummaryMonth').value;
  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)){alert('Please select a valid attendance month.');return;}
  if(!activeCompany||!currentUser){alert('Please select an approved company first.');return;}
- const reportWindow=window.open('','_blank');
- if(!reportWindow){alert('Please allow pop-ups for Daily Kharcha to open the A4 report.');return;}
- reportWindow.document.title='Preparing Attendance Report';
- reportWindow.document.body.textContent='Preparing your attendance report...';
- const btn=$('attendancePrintReport');btn.disabled=true;
+ const btn=$('attendancePrintReport'),original=btn.textContent;
+ btn.disabled=true;btn.textContent='Preparing PDF...';
  try{
   const [year,mon]=month.split('-').map(Number);
   const last=new Date(Date.UTC(year,mon,0)).getUTCDate();
@@ -454,15 +451,50 @@ $('attendancePrintReport').onclick=async()=>{
    .gte('work_date',start).lte('work_date',end)
    .order('work_date',{ascending:true}).order('punch_in_at',{ascending:true});
   if(error)throw error;
-  const records=data||[];
-  const safe=v=>String(v??'—').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  if(!window.jspdf?.jsPDF){
+   await new Promise((resolve,reject)=>{
+    const script=document.createElement('script');
+    script.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js';
+    script.onload=resolve;script.onerror=()=>reject(new Error('PDF library could not load. Please check your internet connection.'));
+    document.head.appendChild(script);
+   });
+  }
+  const pdf=new window.jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  const records=data||[],presentDays=new Set(records.filter(x=>x.punch_in_at).map(x=>x.work_date)).size;
   const completed=records.filter(x=>x.punch_out_at).length;
-  const days=new Set(records.filter(x=>x.punch_in_at).map(x=>x.work_date)).size;
-  const rows=records.map(x=>'<tr><td>'+safe(fmtDate(x.work_date))+'</td><td>'+safe(fmtTime(x.punch_in_at))+'</td><td>'+safe(fmtTime(x.punch_out_at))+'</td><td>'+safe(x.punch_out_at?'Completed':'In progress')+'</td></tr>').join('');
-  const report='<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Attendance Report - '+safe(month)+'</title><style>@page{size:A4 portrait;margin:14mm}body{font:12px Arial,sans-serif;color:#23352d;margin:20px}h1{font-size:22px;color:#17634c;margin-bottom:5px}.meta{line-height:1.8;margin:15px 0}.summary{padding:12px;background:#edf6f1;border:1px solid #cce3d7;margin-bottom:16px}table{border-collapse:collapse;width:100%;font-size:11px}th,td{border:1px solid #cbd9d1;padding:8px;text-align:left}th{background:#e5f0e9}tr{break-inside:avoid}.toolbar{margin:12px 0}button{padding:10px 15px;cursor:pointer;background:#17634c;color:white;border:0;border-radius:5px}@media print{.toolbar{display:none}body{margin:0}}</style></head><body><h1>Daily Kharcha — Monthly Attendance Report</h1><div class="meta"><strong>Company:</strong> '+safe(activeCompany.company_name||activeCompany.name||'Company')+'<br><strong>Employee:</strong> '+safe(profile?.full_name||currentUser.email)+'<br><strong>Month:</strong> '+safe(month)+'<br><strong>Generated:</strong> '+safe(new Date().toLocaleDateString('en-IN'))+'</div><div class="summary"><strong>Attendance Records:</strong> '+records.length+' &nbsp; | &nbsp; <strong>Present Days (unique punch dates):</strong> '+days+' &nbsp; | &nbsp; <strong>Completed Punches:</strong> '+completed+'</div><div class="toolbar"><button onclick="window.print()">Print / Save as PDF</button></div><table><thead><tr><th>Date</th><th>Punch In</th><th>Punch Out</th><th>Status</th></tr></thead><tbody>'+(rows||'<tr><td colspan="4">No attendance punches for this month.</td></tr>')+'</tbody></table><p style="font-size:10px;color:#61766b;margin-top:18px">Report based on saved attendance punches. Approved leave, holidays and weekly offs are not counted as punches.</p></body></html>';
-  reportWindow.document.open();reportWindow.document.write(report);reportWindow.document.close();
- }catch(err){reportWindow.document.body.textContent='Unable to generate attendance report: '+friendlyError(err);}
- finally{btn.disabled=false;}
+  const clean=v=>String(v??'-').replace(/[^\x20-\x7e]/g,' ').trim()||'-';
+  const pageW=210,left=14,right=196;
+  let y=17,page=1;
+  const header=()=>{
+   pdf.setFont('helvetica','bold');pdf.setFontSize(17);pdf.text('Daily Kharcha - Monthly Attendance Report',left,18);
+   pdf.setDrawColor(195,215,203);pdf.line(left,22,right,22);
+   pdf.setFont('helvetica','normal');pdf.setFontSize(10);
+   pdf.text('Company: '+clean(activeCompany.company_name||activeCompany.name||'Company').slice(0,85),left,30);
+   pdf.text('Employee: '+clean(profile?.full_name||currentUser.email).slice(0,85),left,36);
+   pdf.text('Month: '+month+'     Generated: '+new Date().toLocaleDateString('en-IN'),left,42);
+   pdf.text('Records: '+records.length+'     Present days: '+presentDays+'     Completed punches: '+completed,left,49);
+   pdf.setFillColor(232,242,235);pdf.rect(left,55,right-left,9,'F');
+   pdf.setFont('helvetica','bold');pdf.text('Date',left+3,61);pdf.text('Punch In',left+40,61);pdf.text('Punch Out',left+87,61);pdf.text('Status',left+137,61);
+   pdf.setFont('helvetica','normal');y=70;
+  };
+  header();
+  for(const x of records){
+   if(y>267){pdf.setFontSize(9);pdf.text('Page '+page,180,286);pdf.addPage();page++;header();}
+   pdf.setFontSize(9);
+   pdf.text(clean(fmtDate(x.work_date)).slice(0,16),left+3,y);
+   pdf.text(clean(fmtTime(x.punch_in_at)).slice(0,24),left+40,y);
+   pdf.text(clean(fmtTime(x.punch_out_at)).slice(0,24),left+87,y);
+   pdf.text(x.punch_out_at?'Completed':'In progress',left+137,y);
+   pdf.setDrawColor(227,233,229);pdf.line(left,y+3,right,y+3);
+   y+=10;
+  }
+  if(!records.length){pdf.setFontSize(10);pdf.text('No attendance punches for this month.',left+3,y);}
+  pdf.setFontSize(8);pdf.setTextColor(90,105,95);
+  pdf.text('Based on saved punches only; approved leave and holidays are not counted as punches.',left,280);
+  pdf.text('Page '+page,180,286);
+  pdf.save('Daily-Kharcha-Attendance-'+month+'.pdf');
+ }catch(err){alert('Unable to download attendance PDF: '+friendlyError(err));}
+ finally{btn.disabled=false;btn.textContent=original;}
 };
 
 async function loadMyLeaveBalance(){
