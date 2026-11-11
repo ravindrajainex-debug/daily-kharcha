@@ -462,8 +462,8 @@ $('attendancePrintReport').onclick=async()=>{
    const draw=(x,y,value,size=10,bold=false)=>{
     lines.push('BT /'+(bold?'F2':'F1')+' '+size+' Tf 1 0 0 1 '+x+' '+y+' Tm ('+pdfEscape(value)+') Tj ET');
    };
-   draw(40,798,'DAILY KHARCHA - MONTHLY ATTENDANCE REPORT',16,true);
-   draw(40,771,'Company: '+clean(activeCompany.company_name||activeCompany.name||'Company').slice(0,78));
+   draw(40,798,clean(activeCompany.company_name||activeCompany.name||'Company').slice(0,52),18,true);
+   draw(40,776,'DAILY KHARCHA - MONTHLY ATTENDANCE REPORT',13,true);
    draw(40,755,'Employee: '+clean(profile?.full_name||currentUser.email).slice(0,78));
    draw(40,739,'Month: '+month+'     Generated: '+new Date().toLocaleDateString('en-IN'));
    draw(40,723,'Records: '+records.length+'     Present days: '+presentDays+'     Completed punches: '+completed);
