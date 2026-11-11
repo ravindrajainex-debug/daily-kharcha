@@ -351,20 +351,27 @@ async function loadAttendanceMonthlySummary(){
  if(!activeCompany||!currentUser){target.textContent='Select an approved company first.';return;}
  const [year,mon]=month.split('-').map(Number),last=new Date(Date.UTC(year,mon,0)).getUTCDate(),start=month+'-01',end=month+'-'+String(last).padStart(2,'0');
  target.textContent='Loading monthly summary...';
- const [punch,leaves]=await Promise.all([
+ const [punch,leaves,settings,holidays]=await Promise.all([
   client.from('attendance_records').select('work_date,punch_in_at').eq('company_id',activeCompany.id).eq('user_id',currentUser.id).gte('work_date',start).lte('work_date',end),
-  client.from('employee_leave_requests').select('start_date,end_date').eq('company_id',activeCompany.id).eq('employee_id',currentUser.id).eq('status','approved').lte('start_date',end).gte('end_date',start)
+  client.from('employee_leave_requests').select('start_date,end_date').eq('company_id',activeCompany.id).eq('employee_id',currentUser.id).eq('status','approved').lte('start_date',end).gte('end_date',start),
+  client.from('company_attendance_settings').select('weekly_off_days,saturday_off_weeks').eq('company_id',activeCompany.id).maybeSingle(),
+  client.from('company_holidays').select('holiday_date').eq('company_id',activeCompany.id).gte('holiday_date',start).lte('holiday_date',end)
  ]);
- if(punch.error||leaves.error){target.textContent='Unable to load monthly summary: '+friendlyError(punch.error||leaves.error);return;}
+ const error=punch.error||leaves.error||settings.error||holidays.error;
+ if(error){target.textContent='Unable to load monthly summary: '+friendlyError(error);return;}
  const present=new Set((punch.data||[]).filter(x=>x.punch_in_at).map(x=>x.work_date));
  const leaveDays=new Set();
  for(const l of leaves.data||[]){let day=l.start_date>start?l.start_date:start;const stop=l.end_date<end?l.end_date:end;while(day<=stop){leaveDays.add(day);const dt=new Date(day+'T00:00:00Z');dt.setUTCDate(dt.getUTCDate()+1);day=dt.toISOString().slice(0,10);}}
+ const offDays=new Set(),weekly=settings.data?.weekly_off_days||[0],satWeeks=settings.data?.saturday_off_weeks||[];
+ for(let d=1;d<=last;d++){const date=new Date(Date.UTC(year,mon-1,d)),weekday=date.getUTCDay();if(weekly.includes(weekday)||(weekday===6&&satWeeks.includes(Math.ceil(d/7))))offDays.add(month+'-'+String(d).padStart(2,'0'));}
+ const holidayDays=new Set((holidays.data||[]).map(h=>h.holiday_date));
+ const covered=new Set([...present,...leaveDays,...offDays,...holidayDays]);
  const overlapping=[...leaveDays].filter(d=>present.has(d)).length;
  target.replaceChildren();
  const table=document.createElement('table'),body=document.createElement('tbody');
- for(const [label,value] of [['Calendar days',last],['Days with punch-in',present.size],['Approved leave days',leaveDays.size],['Leave days also punched in',overlapping],['Other calendar days (not classified)',last-new Set([...present,...leaveDays]).size]]){const tr=document.createElement('tr');for(const cell of [label,value]){const td=document.createElement('td');td.textContent=String(cell);tr.appendChild(td);}body.appendChild(tr);}
+ for(const [label,value] of [['Calendar days',last],['Days with punch-in',present.size],['Approved leave days',leaveDays.size],['Weekly off days',offDays.size],['Company holiday days',holidayDays.size],['Leave days also punched in',overlapping],['Other calendar days (not classified)',last-covered.size]]){const tr=document.createElement('tr');for(const cell of [label,value]){const td=document.createElement('td');td.textContent=String(cell);tr.appendChild(td);}body.appendChild(tr);}
  table.appendChild(body);target.appendChild(table);
- const note=document.createElement('p');note.className='muted';note.textContent='Calendar-day overview only. Weekends, holidays, absences, paid/unpaid leave and salary deductions are not calculated. Overlapping punch and leave dates are not double-counted.';target.appendChild(note);
+ const note=document.createElement('p');note.className='muted';note.textContent='Calendar-day overview. Weekly off and holiday dates may overlap with leave or punch-in, so rows should not be added together. Other days exclude all recorded categories. Salary, paid/unpaid leave and absence deductions are not calculated.';target.appendChild(note);
 }
 $('attendanceSummaryMonth').value=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}).slice(0,7);
 $('attendanceSummaryRefresh').onclick=loadAttendanceMonthlySummary;
