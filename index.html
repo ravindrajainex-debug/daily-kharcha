@@ -385,19 +385,21 @@ async function loadAccessories(append=false){
   const offset=append?accessoryRecords.length:0;
   const [q,m]=await Promise.all([
    client.from('employee_accessory_issues').select('id,employee_id,accessory_name,item_code,quantity,issue_date,expected_return_date,returned_at,return_condition').eq('company_id',activeCompany.id).order('issue_date',{ascending:false}).order('id',{ascending:false}).range(offset,offset+49),
-   client.from('company_memberships').select('user_id,role,status').eq('company_id',activeCompany.id)
+   append?Promise.resolve(null):client.from('company_memberships').select('user_id,role,status').eq('company_id',activeCompany.id)
   ]);
-  if(q.error||m.error)throw(q.error||m.error);
+  if(q.error||m?.error)throw(q.error||m.error);
   const next=q.data||[];
-  const active=(m.data||[]).filter(x=>x.status==='active');
-  const ids=[...new Set([...active.map(x=>x.user_id),...next.map(x=>x.employee_id)])];
-  if(ids.length){const p=await client.from('profiles').select('id,full_name').in('id',ids);if(p.error)throw p.error;accessoryNames=new Map([...(append?accessoryNames:new Map()),...(p.data||[]).map(x=>[x.id,x.full_name||'Employee'])]);}
+  const active=append?[]:(m.data||[]).filter(x=>x.status==='active');
+  const ids=[...new Set([...active.map(x=>x.user_id),...next.map(x=>x.employee_id)])].filter(id=>!accessoryNames.has(id));
+  if(ids.length){const p=await client.from('profiles').select('id,full_name').in('id',ids);if(p.error)throw p.error;accessoryNames=new Map([...accessoryNames,...(p.data||[]).map(x=>[x.id,x.full_name||'Employee'])]);}
   accessoryRecords=append?[...accessoryRecords,...next]:next;
   accessoryHasMore=next.length===50;
-  const select=$('accessoryEmployee'),selected=select.value;
-  select.innerHTML='<option value="">Select employee</option>';
-  if(canManage)active.forEach(x=>{const o=document.createElement('option');o.value=x.user_id;o.textContent=accessoryNames.get(x.user_id)||'Employee';select.appendChild(o);});
-  if([...select.options].some(x=>x.value===selected))select.value=selected;
+  if(!append){
+   const select=$('accessoryEmployee'),selected=select.value;
+   select.innerHTML='<option value="">Select employee</option>';
+   if(canManage)active.forEach(x=>{const o=document.createElement('option');o.value=x.user_id;o.textContent=accessoryNames.get(x.user_id)||'Employee';select.appendChild(o);});
+   if([...select.options].some(x=>x.value===selected))select.value=selected;
+  }
   renderAccessories();msg('accessoryMessage',accessoryRecords.length+' record(s) loaded.');
  }catch(e){if(!append){accessoryRecords=previousRecords;accessoryNames=previousNames;renderAccessories();}msg('accessoryMessage','Unable to load accessories: '+friendlyError(e),true);}
  finally{accessoryLoading=false;more.disabled=false;more.classList.toggle('hidden',!accessoryHasMore);$('accessoryPageStatus').textContent=accessoryRecords.length+' loaded';}
